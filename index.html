@@ -625,6 +625,11 @@ const randomPhrase=()=>PHRASES[Math.floor(Math.random()*PHRASES.length)];
 const MODEL='claude-sonnet-4-6';
 const DEADLINE=new Date(2026,8,1);
 const DAYS_LEFT=Math.max(0,Math.floor((DEADLINE-new Date())/86400000));
+// Пункт 3: дедлайны Hub и Базы — те же динамические расчёты, что и у Scrap
+const HUB_DEADLINE=new Date(2026,7,15);
+const HUB_DAYS_LEFT=Math.max(0,Math.floor((HUB_DEADLINE-new Date())/86400000));
+const BASE_DEADLINE=new Date(2027,6,1);
+const BASE_DAYS_LEFT=Math.max(0,Math.floor((BASE_DEADLINE-new Date())/86400000));
 const ENERGY_DEF={will:72,intuition:85,action:60,mode:'Переходный день',
   aspect:'Луна в Скорпионе нарастает к натальной позиции.',
   advice:'Слушай внутренний голос больше логики. Хороший день для глубокого анализа.',
@@ -701,6 +706,15 @@ const SCRAP_PHASES=[
   {name:'Тишина',dates:'до 20 июля',active:true},
   {name:'Осторожный выход',dates:'21 июл — 5 авг',active:false},
   {name:'Золотой коридор',dates:'6 авг — 1 сент',active:false},
+];
+// Пункт 3: ориентировочные фазы для Базы отдыха (проект на старте)
+const BASE_PHASES=[
+  {name:'Поиск участка',dates:'сейчас',active:true},
+  {name:'Юридическая проверка',dates:'далее',active:false},
+  {name:'Проектирование',dates:'далее',active:false},
+  {name:'Бюджет',dates:'далее',active:false},
+  {name:'Строительство',dates:'далее',active:false},
+  {name:'Запуск',dates:'1 июля 2027',active:false},
 ];
 const TEAM_MINE_DEF=[{
   id:1,name:'Алексей К.',role:'Партнёр по Scrap',av:'👔',project:'scrap',
@@ -1103,17 +1117,10 @@ function WeeklyForecastCard(){
   </div>;
 }
 
-function Home({onNav,energy,stopActive,stopEnd}){
+function Home({onNav,energy}){
   const e=energy||ENERGY_DEF;
-  const [stopOpen,setStopOpen]=useState(false);
   const today=new Date().toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'});
-  const timeLeft=stopActive&&stopEnd?Math.max(0,Math.floor((stopEnd-Date.now())/60000)):0;
-  const hLeft=Math.floor(timeLeft/60),mLeft=timeLeft%60;
   return <div className="screen">
-    {stopActive&&<div className="stop-banner">
-      <span style={{fontSize:20}}>🛑</span>
-      <p><b>Режим Стоп-кран активен</b><br/>Воздержись от важных инициатив ещё {hLeft}ч {mLeft}мин.</p>
-    </div>}
     <div className="pad">
       <div className="home-head">
         <div className="date">{today}</div>
@@ -1436,18 +1443,18 @@ function ProjectTaskList({project}){
 
 /* ======= PROJECTS (детальная страница проекта — вход только с карточек Главной) ======= */
 const PROJECT_META={
-  scrap:{title:'Recovery Scrap',icon:'⚙️',phaseLabel:'Тишина',
+  scrap:{title:'Recovery Scrap',icon:'⚙️',phaseLabel:'Тишина',phases:SCRAP_PHASES,
     deadlineLabel:'До дедлайна · 1 сентября 2026',daysLeft:DAYS_LEFT,
     astro:'Юпитер вошёл в Льва — начало 12-месячного цикла роста. Фаза Тишины — время внутренней перестройки: не инициируй публично, строй команду и процессы изнутри. Стратегическое окно — 6–14 августа (Венера трин Юпитер + Луна в Тельце): оптимально для подписания договоров.',
     links:'Влияет на Hub (финансирование) и Базу (инвестиции).',
     journalTag:'#scrap'},
   hub:{title:'Recovery Hub',icon:'🏃',phaseLabel:'Разработка',
-    deadlineLabel:'Тестовый запуск',daysLeft:null,daysText:'10–15 августа',
+    deadlineLabel:'До запуска · 15 августа 2026',daysLeft:HUB_DAYS_LEFT,
     astro:'Подготовь лендинг с акцентом на доверие и экспертность. Юпитер в Льве смещает тему с «дома» на «авторитет». Добавь личную историю и кейсы на главную.',
     links:'Использует ресурсы Scrap и пространство Базы.',
     journalTag:'#hub'},
-  base:{title:'База отдыха',icon:'🏕️',phaseLabel:'В разработке',
-    deadlineLabel:'Статус',daysLeft:null,daysText:'Планируется',
+  base:{title:'База отдыха',icon:'🏕️',phaseLabel:'В разработке',phases:BASE_PHASES,
+    deadlineLabel:'До запуска · 1 июля 2027',daysLeft:BASE_DAYS_LEFT,
     astro:'Проект на старте — сфокусируйся на поиске участка и юридической чистоте сделки, прежде чем вкладывать ресурсы.',
     links:'Интегрируется с Hub (мероприятия) и Scrap (территория).',
     journalTag:'#база'},
@@ -1513,21 +1520,30 @@ function Projects({onOpenLibrary}){
     <SegControl tabs={[{k:'scrap',l:'Scrap'},{k:'hub',l:'Hub'},{k:'base',l:'База'}]} active={tab} onChange={setTab}/>
 
     {/* Статус / Фаза с таймером */}
-    <div className="card">
+    {m.phases?<div className="card">
+      <div className="card-title">{m.icon} {m.title} · Фазы проекта</div>
+      {m.phases.map((ph,i)=><div key={ph.name} style={{display:'flex',gap:12,marginBottom:i<m.phases.length-1?14:0}}>
+        <div style={{display:'flex',flexDirection:'column',alignItems:'center'}}>
+          <div className="phase-dot" style={{background:ph.active?C.indigo:C.border,color:ph.active?'#fff':C.sub}}>{ph.active?'●':i+1}</div>
+          {i<m.phases.length-1&&<div className="phase-line"/>}
+        </div>
+        <div style={{paddingTop:4}}>
+          <div style={{fontSize:13,fontWeight:600,color:ph.active?C.indigo:C.text}}>{ph.name}</div>
+          <div style={{fontSize:11,color:C.sub}}>{ph.dates}</div>
+        </div>
+      </div>)}
+    </div>:<div className="card">
       <div className="card-title">{m.icon} {m.title}</div>
       <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
         <div style={{width:9,height:9,borderRadius:'50%',background:C.indigo}}/>
         <span style={{fontSize:14,fontWeight:700,color:C.indigo}}>{m.phaseLabel}</span>
       </div>
-    </div>
-    {tab==='scrap'?<div className="counter">
+    </div>}
+    <div className="counter">
       <div style={{fontSize:11,color:C.sub,marginBottom:6}}>{m.deadlineLabel}</div>
       <div className="num">{m.daysLeft}</div>
       <div style={{fontSize:13,color:C.sub,marginTop:4}}>дней</div>
-    </div>:<div className="counter">
-      <div style={{fontSize:11,color:C.sub,marginBottom:6}}>{m.deadlineLabel}</div>
-      <div style={{fontSize:22,fontWeight:700,color:C.indigo}}>{m.daysText}</div>
-    </div>}
+    </div>
 
     {/* Чек-лист задач */}
     <ProjectTaskList project={tab}/>
@@ -2450,8 +2466,57 @@ function getMarathonPhase(){
   return{phase:'Марафон 🎉',tip:'День гонки!',color:C.gold};
 }
 
+// Пункт 4: динамический риск — окно считается от сегодняшней даты, а не
+// зашито статичными числами. Ротация паттернов по дню месяца — сохраняет
+// ощущение «настоящих» транзитов без внешнего API.
+function getDynamicRisk(){
+  const now=new Date();
+  const patterns=[
+    {label:'Марс квадрат Сатурн',days:[2,4],text:'риск перенапряжения — умерь интенсивность, приоритет на восстановление.'},
+    {label:'Луна в оппозиции натальной Луне',days:[5,6],text:'эмоциональная уязвимость — не начинай сложных разговоров и не бери новых обязательств.'},
+    {label:'Меркурий в тени',days:[1,3],text:'риск недопонимания в переписке — перепроверяй детали перед отправкой.'},
+  ];
+  const p=patterns[now.getDate()%patterns.length];
+  const start=new Date(now);start.setDate(now.getDate()+p.days[0]);
+  const end=new Date(now);end.setDate(now.getDate()+p.days[1]);
+  const fmt=d=>`${d.getDate()} ${d.toLocaleDateString('ru-RU',{month:'long'})}`;
+  return `${fmt(start)}–${fmt(end)}: ${p.label} — ${p.text}`;
+}
+
+// Пункт 4: приём витаминов и добавок — свободный текст + дата начала
+function VitaminsCard(){
+  const [text,setText]=useState(()=>localStorage.getItem('body_vitamins_text')||'');
+  const [since,setSince]=useState(()=>localStorage.getItem('body_vitamins_since')||'');
+  const [saved,setSaved]=useState(false);
+  const save=()=>{
+    localStorage.setItem('body_vitamins_text',text);
+    localStorage.setItem('body_vitamins_since',since);
+    setSaved(true);setTimeout(()=>setSaved(false),2000);
+  };
+  return <div className="card">
+    <div className="card-title">💊 Приём витаминов и добавок</div>
+    <label className="label11">Что принимаю сейчас</label>
+    <textarea className="journal-textarea" style={{minHeight:60}} value={text}
+      onChange={e=>setText(e.target.value)} placeholder="D3, омега-3, магний…"/>
+    <label className="label11" style={{marginTop:8}}>Начал приём с</label>
+    <input type="date" className="race-form-input" value={since} onChange={e=>setSince(e.target.value)}/>
+    <button className="add-btn" onClick={save}>{saved?'✓ Сохранено':'Сохранить'}</button>
+  </div>;
+}
+
 function Body(){
-  const {total,factors,base}=calcBodyResource();
+  const {total:baseTotal,factors,base}=calcBodyResource();
+  // Пункт 4: ручная корректировка ресурса — кнопки −5/+5, диапазон −20..+20, в localStorage
+  const [manualAdj,setManualAdj]=useState(()=>{
+    const v=Number(localStorage.getItem('body_resource_adjustment')||0);
+    return isNaN(v)?0:v;
+  });
+  const adjustResource=delta=>{
+    const next=Math.max(-20,Math.min(20,manualAdj+delta));
+    setManualAdj(next);
+    localStorage.setItem('body_resource_adjustment',String(next));
+  };
+  const total=Math.max(0,Math.min(100,baseTotal+manualAdj));
   const level=total>=70?'Высокий':total>=50?'Средний':total>=30?'Низкий':'Критический';
   const levelColor=total>=70?C.green:total>=50?'#F57F17':C.red;
   const mp=getMarathonPhase();
@@ -2518,12 +2583,13 @@ function Body(){
       </p>
     </div>}
 
-    {/* Регулярные процедуры восстановления */}
-    <RecoveryProceduresCard/>
+    {/* Пункт 4/11: блок «Регулярные процедуры» убран — восстановление
+        (йога/сауна/бассейн/массаж) уже разбирается внутри Совета дня */}
+    <VitaminsCard/>
 
     {/* Физический ресурс */}
     <div className="res-widget">
-      <div style={{fontSize:11,color:C.sub,marginBottom:8}}>Физический ресурс (транзиты)</div>
+      <div style={{fontSize:11,color:C.sub,marginBottom:8}}>Физический ресурс (транзиты + твоя корректировка)</div>
       <div style={{width:100,height:100,margin:'0 auto 12px',position:'relative'}}>
         <svg viewBox="0 0 100 100" style={{transform:'rotate(-90deg)'}}>
           <circle cx="50" cy="50" r="42" fill="none" stroke="#E0E0E0" strokeWidth="10"/>
@@ -2536,7 +2602,22 @@ function Body(){
           <div style={{fontSize:10,color:C.sub}}>{level}</div>
         </div>
       </div>
-      <div style={{fontSize:12,color:C.sub}}>База {base}% + транзитные коррекции</div>
+      <div style={{fontSize:12,color:C.sub,marginBottom:12}}>База {base}% + транзитные коррекции</div>
+      {/* Пункт 4: ручная корректировка −5/+5, диапазон −20..+20 */}
+      <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:14}}>
+        <button onClick={()=>adjustResource(-5)} disabled={manualAdj<=-20}
+          style={{width:38,height:38,borderRadius:19,border:`1.5px solid ${C.border}`,background:'#fff',
+          fontSize:18,fontWeight:700,color:C.indigo,cursor:'pointer',opacity:manualAdj<=-20?.4:1}}>−5</button>
+        <div style={{minWidth:70,textAlign:'center'}}>
+          <div style={{fontSize:11,color:C.sub}}>Твоя корректировка</div>
+          <div style={{fontSize:15,fontWeight:700,color:manualAdj===0?C.sub:manualAdj>0?C.green:C.red}}>
+            {manualAdj>0?'+':''}{manualAdj}%
+          </div>
+        </div>
+        <button onClick={()=>adjustResource(5)} disabled={manualAdj>=20}
+          style={{width:38,height:38,borderRadius:19,border:`1.5px solid ${C.border}`,background:'#fff',
+          fontSize:18,fontWeight:700,color:C.indigo,cursor:'pointer',opacity:manualAdj>=20?.4:1}}>+5</button>
+      </div>
     </div>
 
     <div className="card">
@@ -2550,16 +2631,30 @@ function Body(){
       </div>)}
     </div>
 
+    {/* Пункт 4: динамический риск — окно считается от сегодняшней даты */}
     <div style={{background:'#FFF3E0',borderRadius:16,padding:16,
       border:`1px solid ${C.gold}`}}>
       <div style={{fontSize:13,fontWeight:700,marginBottom:6}}>⚠️ Ближайший риск</div>
-      <p className="body12">7–9 июля: Марс квадрат Сатурн — риск перенапряжения.
-        Умерь интенсивность, приоритет — восстановление.</p>
+      <p className="body12">{getDynamicRisk()}</p>
     </div>
   </div></div>;
 }
 
 /* ======= POWER PLACE ======= */
+// Пункт 7: ближайшие выходные (суббота-воскресенье), считаются от реальной даты
+function getNextWeekendLabel(){
+  const now=new Date();
+  const dow=now.getDay(); // 0=вс..6=сб
+  const daysToSat=(6-dow+7)%7; // если сегодня суббота — 0 (эти же выходные)
+  const sat=new Date(now);sat.setDate(now.getDate()+daysToSat);
+  const sun=new Date(sat);sun.setDate(sat.getDate()+1);
+  const fmt=d=>d.getDate();
+  const sameMonth=sat.getMonth()===sun.getMonth();
+  const monthName=sun.toLocaleDateString('ru-RU',{month:'long'});
+  return sameMonth
+    ?`${fmt(sat)}–${fmt(sun)} ${monthName}`
+    :`${fmt(sat)} ${sat.toLocaleDateString('ru-RU',{month:'long'})} – ${fmt(sun)} ${monthName}`;
+}
 function PowerPlace({onBack}){
   const [tab,setTab]=useState('rec');
   const [dir,setDir]=useState(null);
@@ -2571,7 +2666,7 @@ function PowerPlace({onBack}){
     <Tabs tabs={[{k:'rec',l:'За ресурсом'},{k:'choose',l:'Выбрать'}]} active={tab} onChange={setTab}/>
     {tab==='rec'&&<>
       <div className="hero-pp">
-        <div style={{fontSize:10,color:'rgba(255,255,255,.5)',marginBottom:6}}>На выходные · 4–5 июля</div>
+        <div style={{fontSize:10,color:'rgba(255,255,255,.5)',marginBottom:6}}>На выходные · {getNextWeekendLabel()}</div>
         <div style={{fontSize:36,marginBottom:6}}>🌊</div>
         <div style={{fontSize:22,fontWeight:700,color:'#fff',marginBottom:8}}>Север</div>
         <div style={{fontSize:13,color:C.gold,lineHeight:1.5}}>Интуитивная перезагрузка через воду и тишину</div>
@@ -3049,12 +3144,63 @@ ${natalSummary()}`;
 }
 
 /* ======= MORE ======= */
+/* ======= ASTRO DIGEST (Астрологический дайджест) ======= */
+// Приближённый расчёт фазы Луны без внешнего API — по известному новолунию-
+// опоре и длине синодического месяца. Точность в пределах суток достаточна
+// для смыслового вывода (действовать/анализировать/отдыхать), не для эфемерид.
+function getMoonPhase(date){
+  const knownNewMoon=new Date(Date.UTC(2000,0,6,18,14,0));
+  const synodic=29.530588853;
+  const days=(date-knownNewMoon)/86400000;
+  const phase=((days%synodic)+synodic)%synodic;
+  const pct=phase/synodic;
+  if(pct<0.03||pct>0.97)return{name:'Новолуние',verdict:'Хороший день закладывать новое, а не подводить итоги — сейчас лучше сеять, чем собирать урожай.'};
+  if(pct<0.22)return{name:'Растущая Луна',verdict:'Энергия на старте — действуй, не жди идеальных условий, они появятся по ходу дела.'};
+  if(pct<0.28)return{name:'Первая четверть',verdict:'День решений — выбирай направление и двигайся, промедление сейчас дороже ошибки.'};
+  if(pct<0.47)return{name:'Растущая Луна',verdict:'Наращивай темп, но не форсируй финал — до пика ещё есть время довести детали.'};
+  if(pct<0.53)return{name:'Полнолуние',verdict:'Эмоции обострены — хороший момент для честных разговоров, но не для новых обязательств.'};
+  if(pct<0.72)return{name:'Убывающая Луна',verdict:'Время анализировать и завершать, а не начинать что-то с нуля.'};
+  if(pct<0.78)return{name:'Последняя четверть',verdict:'Отпускай то, что не сработало — расчисти пространство под следующий цикл.'};
+  return{name:'Убывающая Луна',verdict:'Замедлись и восстанавливайся — новый цикл начнётся уже скоро, силы понадобятся.'};
+}
+function AstroDigest({onBack}){
+  const now=new Date();
+  const moon=getMoonPhase(now);
+  const dayOfYear=Math.floor((now-new Date(now.getFullYear(),0,0))/86400000);
+  const weekNum=Math.ceil(dayOfYear/7);
+  // Пункт 9: «фон вокруг» — ротация формулировок по неделям, без внешнего API
+  const BG_ROTATION=[
+    'Люди вокруг сейчас более осторожны с обещаниями — держись за конкретику в переговорах, а не за общие договорённости.',
+    'В команде фон нервный, но продуктивный — люди готовы работать, если видят ясную цель и конкретный следующий шаг.',
+    'Вокруг много несогласованных ожиданий — уточняй детали дважды, прежде чем считать вопрос закрытым.',
+    'Атмосфера сейчас располагает к доверию — хороший фон для новых договорённостей и честных разговоров.',
+  ];
+  const bg=BG_ROTATION[weekNum%BG_ROTATION.length];
+  const bigPicture='Юпитер идёт через Льва весь этот год — твоя зона лидерства и публичности усиливается по умолчанию. Для Scrap это значит: то, что ты строишь тихо сейчас, летом и осенью получит куда больше видимости, чем ты рассчитывал. Не экономь на качестве того, что делаешь в тени — оно скоро окажется на свету.';
+
+  return <div className="screen"><div className="pad">
+    <BackHead title="🌙 Астро-дайджест" onBack={onBack}/>
+    <div className="card">
+      <div className="card-title">🧘 Сегодня для тебя</div>
+      <p className="body12">{moon.name}. {moon.verdict}</p>
+    </div>
+    <div className="card">
+      <div className="card-title">👥 Фон вокруг</div>
+      <p className="body12">{bg}</p>
+    </div>
+    <div className="card">
+      <div className="card-title">🌍 Большая картина</div>
+      <p className="body12">{bigPicture}</p>
+    </div>
+  </div></div>;
+}
+
 function More({onNav,onKeyCleared}){
   const reset=()=>{if(window.confirm('Сбросить API-ключ? Введёшь заново при следующем запуске.')){localStorage.removeItem('fenix_api_key');onKeyCleared();}};
   return <div className="screen"><div className="pad">
     <div className="h1">Ещё</div>
     <div className="more-grid">
-      {[['journal','📝','Журнал','Заметки + транзиты'],['library','📚','Библиотека','Книги и оценки'],['mycode','✨','Мой код','Натальная карта'],['insights','🔮','Глубинные запросы','Особые разборы'],['powerplace','🧭','Место силы','Куда за энергией']].map(([id,e,l,s])=><button key={id} className="more-tile" onClick={()=>onNav(id)}>
+      {[['journal','📝','Журнал','Заметки + транзиты'],['library','📚','Библиотека','Книги и оценки'],['powerplace','🧭','Место силы','Куда за энергией'],['mycode','✨','Мой код','Натальная карта'],['digest','🌙','Астро-дайджест','Сегодня, фон, картина'],['insights','🔮','Глубинные запросы','Особые разборы']].map(([id,e,l,s])=><button key={id} className="more-tile" onClick={()=>onNav(id)}>
         <span className="ei2">{e}</span><strong>{l}</strong><span>{s}</span>
       </button>)}
     </div>
@@ -3103,7 +3249,7 @@ function StopFAB({active,endTime,onActivate}){
 const NAV_TABS=[{id:'home',e:'🏠',l:'Главная'},{id:'calendar',e:'📅',l:'Календарь'},{id:'projects',e:'📁',l:'Проекты'},{id:'body',e:'💪',l:'Тело'},{id:'oracle',e:'👁',l:'Оракул'},{id:'more',e:'⋯',l:'Ещё'}];
 // Пункт 7: в «Ещё» остались только Журнал/Мой код/Уведомления/Инсайты.
 // projects и powerplace — экраны-детали, открываются только карточками с Главной.
-const SUB=['journal','mycode','notifications','insights','powerplace','library'];
+const SUB=['journal','mycode','notifications','insights','powerplace','library','digest'];
 function Nav({active,onNav}){
   return <nav className="nav">{NAV_TABS.map(t=>{
     const on=active===t.id||(t.id==='more'&&SUB.includes(active));
@@ -3120,8 +3266,6 @@ function App(){
   const [energy,setEnergy]=useState(ENERGY_DEF);
   const [splashDone,setSplashDone]=useState(false);
   const [phrase]=useState(randomPhrase);
-  const [stopActive,setStopActive]=useState(false);
-  const [stopEnd,setStopEnd]=useState(null);
   // Изменение (п.4): calKey увеличивается при каждом клике на вкладку
   // «Календарь» в нижней навигации — это форсирует remount компонента
   // Calendar, чтобы он заново инициализировался от текущей даты, даже
@@ -3134,17 +3278,6 @@ function App(){
   // Библиотека: фильтр по проекту при переходе из блока «Книги по теме»
   const [libraryFilter,setLibraryFilter]=useState('all');
   const openLibrary=project=>{setLibraryFilter(project);setScreen('library');};
-  // Проверяем активный стоп-кран из localStorage
-  useEffect(()=>{
-    const se=localStorage.getItem('fenix_stop_end');
-    if(se){const e=Number(se);if(e>Date.now()){setStopActive(true);setStopEnd(e);}}
-  },[]);
-
-  const activateStop=endT=>{
-    setStopActive(true);setStopEnd(endT);
-    localStorage.setItem('fenix_stop_end',String(endT));
-    setTimeout(()=>{setStopActive(false);setStopEnd(null);localStorage.removeItem('fenix_stop_end');},endT-Date.now());
-  };
 
   const afterSplash=()=>{
     setSplashDone(true);
@@ -3160,7 +3293,7 @@ function App(){
     if(cachedDate===today&&cached){try{setEnergy(JSON.parse(cached));}catch{}return;}
     try{
       const transits='Юпитер в начале Льва (соедин. с натальным Солнцем), Луна в Скорпионе.';
-      const r=await callClaudeJSON(SYS_JSON,`НАТАЛЬНАЯ КАРТА:\n${natalSummary()}\nДАТА: ${today}\nТРАНЗИТЫ: ${transits}\nВерни ТОЛЬКО JSON: {"mode":"...","will":0-100,"intuition":0-100,"action":0-100,"aspect":"...","advice":"...","stopKran":false,"stopReason":"..."}`);
+      const r=await callClaudeJSON(SYS_JSON,`НАТАЛЬНАЯ КАРТА:\n${natalSummary()}\nДАТА: ${today}\nТРАНЗИТЫ: ${transits}\nВерни ТОЛЬКО JSON: {"mode":"...","will":0-100,"intuition":0-100,"action":0-100,"aspect":"...","advice":"..."}`);
       const merged={...ENERGY_DEF,...r};
       setEnergy(merged);
       localStorage.setItem('fenix_daily_cache',JSON.stringify(merged));
@@ -3170,7 +3303,7 @@ function App(){
 
   const render=()=>{
     switch(screen){
-      case'home':return<Home onNav={setScreen} energy={energy} stopActive={stopActive} stopEnd={stopEnd}/>;
+      case'home':return<Home onNav={setScreen} energy={energy}/>;
       case'calendar':return<Calendar key={calKey}/>;
       case'projects':return<Projects onOpenLibrary={openLibrary}/>;
       case'body':return<Body/>;
@@ -3182,7 +3315,8 @@ function App(){
       case'mycode':return<MyCode onBack={()=>setScreen('more')}/>;
       case'notifications':return<Notifications onBack={()=>setScreen('more')}/>;
       case'insights':return<InsightsScreen onBack={()=>setScreen('more')}/>;
-      default:return<Home onNav={setScreen} energy={energy} stopActive={stopActive} stopEnd={stopEnd}/>;
+      case'digest':return<AstroDigest onBack={()=>setScreen('more')}/>;
+      default:return<Home onNav={setScreen} energy={energy}/>;
     }
   };
 
@@ -3190,11 +3324,9 @@ function App(){
     {!splashDone&&<Splash phrase={phrase} onDone={afterSplash}/>}
   </>;
   if(phase==='gate')return<Gate onSaved={()=>{setPhase('app');loadEnergy();}}/>;
-  const showFAB=!SUB.includes(screen)&&screen!=='oracle';
   return<>
     {render()}
     <Nav active={screen} onNav={handleNav}/>
-    {showFAB&&<StopFAB active={stopActive} endTime={stopEnd} onActivate={activateStop}/>}
   </>;
 }
 
