@@ -632,7 +632,8 @@ const BASE_DEADLINE=new Date(2027,6,1);
 const BASE_DAYS_LEFT=Math.max(0,Math.floor((BASE_DEADLINE-new Date())/86400000));
 const ENERGY_DEF={will:72,intuition:85,action:60,mode:'Переходный день',
   aspect:'Луна в Скорпионе нарастает к натальной позиции.',
-  advice:'Слушай внутренний голос больше логики. Хороший день для глубокого анализа.',
+  advice:'Твоя воля сегодня — главный ресурс. Направь её на себя, а не на задачи.',
+  mood:'Сегодня день для того, чтобы прислушаться к себе и не торопиться с выводами.',
   stopKran:false,stopReason:'Документы и важные решения сегодня — без ограничений.'};
 
 /* ======= CALENDAR DATA (3 layers) ======= */
@@ -1006,13 +1007,13 @@ function Gate({onSaved}){
    дата генерации fenix_weekly_forecast_date). Статический пул оставлен
    как оффлайн-заглушка на случай отсутствия ключа/сети. */
 const WEEK_ASTRO_POOL=[
-  {quality:'g',moon:'Луна растёт — поддержка новых начинаний',aspect:'Венера трин Юпитер: удачный день для переговоров'},
-  {quality:'y',moon:'Луна в напряжённом аспекте к Сатурну',aspect:'Меркурий в тени — перепроверяй детали'},
-  {quality:'g',moon:'Луна в родной стихии — эмоциональная ясность',aspect:'Марс поддерживает физическую активность'},
+  {quality:'g',moon:'Луна растёт — поддержка новых начинаний',aspect:'Хороший день для контактов и общения'},
+  {quality:'y',moon:'Луна в напряжённом аспекте к Сатурну',aspect:'День для порядка в делах — не начинай новое'},
+  {quality:'g',moon:'Луна в родной стихии — эмоциональная ясность',aspect:'День для тишины и отдыха'},
   {quality:'r',moon:'Полнолуние — пик эмоционального напряжения',aspect:'Избегай резких решений и конфликтов'},
-  {quality:'y',moon:'Луна убывает — время подводить итоги',aspect:'Сатурн просит дисциплины в делах'},
-  {quality:'g',moon:'Луна в гармонии с Солнцем',aspect:'Хороший день для важных встреч'},
-  {quality:'g',moon:'Спокойная лунная фаза',aspect:'Юпитер поддерживает рост и обучение'},
+  {quality:'y',moon:'Луна убывает — время подводить итоги',aspect:'Хороший день навести порядок в делах'},
+  {quality:'g',moon:'Луна в гармонии с Солнцем',aspect:'День для важных разговоров и встреч'},
+  {quality:'g',moon:'Спокойная лунная фаза',aspect:'День для отдыха и внутренней тишины'},
 ];
 function getWeeklyForecastFallback(){
   const wdNames=['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
@@ -1031,7 +1032,7 @@ const WF_CACHE_DATE_KEY='fenix_weekly_forecast_date';
 const todayISO=()=>new Date().toISOString().slice(0,10);
 
 async function generateWeeklyForecast(){
-  const prompt=`НАТАЛЬНАЯ КАРТА:\n${natalSummary()}\nДАТА СЕГОДНЯ: ${todayISO()}\n\nСоставь астрологический прогноз на ближайшие 7 дней (начиная с сегодня), опираясь на лунный календарь и текущие транзиты (Юпитер в Льве, общий фон середины 2026 года).\nВерни ТОЛЬКО JSON строго в формате:\n{"forecast":[{"day":"Сегодня","moon":"краткое описание фазы/знака Луны","aspect":"ключевой аспект дня","quality":"g|y|r"}, ... ещё 6 объектов на следующие дни, day — короткое название дня недели]}`;
+  const prompt=`НАТАЛЬНАЯ КАРТА:\n${natalSummary()}\nДАТА СЕГОДНЯ: ${todayISO()}\n\nСоставь астрологический прогноз на ближайшие 7 дней (начиная с сегодня), опираясь на лунный календарь и текущие транзиты (Юпитер в Льве, общий фон середины 2026 года). ВАЖНО: не упоминай конкретные проекты (Scrap, Hub, База) и не говори «хорошо для проекта X» — вместо этого используй бытовые формулировки о жизни в целом: «день для порядка в делах», «день для контактов и общения», «день для тишины и отдыха» и т.п.\nВерни ТОЛЬКО JSON строго в формате:\n{"forecast":[{"day":"Сегодня","moon":"краткое описание фазы/знака Луны","aspect":"бытовая формулировка дня, без названий проектов","quality":"g|y|r"}, ... ещё 6 объектов на следующие дни, day — короткое название дня недели]}`;
   const res=await callClaudeJSON(SYS_JSON,prompt);
   const arr=res.forecast||res.days||[];
   if(!Array.isArray(arr)||arr.length===0)throw new Error('EMPTY_FORECAST');
@@ -1137,6 +1138,14 @@ function Home({onNav,energy}){
         <Bar value={e.action} color="#7B1FA2" label="Действие · Марс"/>
         <div className="advice-box"><p>💡 {e.advice}</p></div>
       </div>
+
+      {/* Пункт 3: «Настрой дня» — про внутреннее состояние и повседневную жизнь,
+          отдельно от шкал энергии, никак не связано со спортом/делами/проектами */}
+      <div className="card">
+        <div className="card-title">🌿 Настрой дня</div>
+        <p className="body12">{e.mood||ENERGY_DEF.mood}</p>
+      </div>
+
       {/* Пункт 2/3: карточки проектов и Место силы убраны с Главной —
           Проекты снова своя вкладка навигации, Место силы переехало в Ещё.
           Главная теперь показывает только энергию и прогноз на неделю. */}
@@ -2124,7 +2133,7 @@ function Team(){
 }
 
 /* ======= TRAINING PLAN CARD ======= */
-function TrainingPlanCard(){
+function TrainingPlanCard({onPlanSaved}){
   const [plan,setPlan]=useState(()=>
     localStorage.getItem('trainingPlan')||localStorage.getItem('fenix_training_plan')||'');
   const [editing,setEditing]=useState(!plan);
@@ -2135,6 +2144,7 @@ function TrainingPlanCard(){
     const trimmed=draft.trim();
     localStorage.setItem('trainingPlan',trimmed);
     setPlan(trimmed);setEditing(false);setSaved(true);
+    onPlanSaved&&onPlanSaved(trimmed); // сообщаем Body — карточки перерисуются сразу
     setTimeout(()=>setSaved(false),2000);
   };
   const clearPlan=()=>{
@@ -2142,6 +2152,7 @@ function TrainingPlanCard(){
       localStorage.removeItem('trainingPlan');
       localStorage.removeItem('fenix_training_plan');
       setPlan('');setDraft('');setEditing(true);
+      onPlanSaved&&onPlanSaved('');
     }
   };
 
@@ -2520,9 +2531,16 @@ function Body(){
   const level=total>=70?'Высокий':total>=50?'Средний':total>=30?'Низкий':'Критический';
   const levelColor=total>=70?C.green:total>=50?'#F57F17':C.red;
   const mp=getMarathonPhase();
-  const rawPlan=localStorage.getItem('trainingPlan')||localStorage.getItem('fenix_training_plan')||'';
+  // Группа 2, пункт 3: rawPlan теперь состояние Body (не разовое чтение
+  // localStorage) — это позволяет TrainingPlanCard сообщать наверх об
+  // изменении плана через onPlanSaved, и PlanDayCards перерисовывается
+  // сразу же, без необходимости уходить с экрана и возвращаться.
+  const [rawPlan,setRawPlan]=useState(()=>
+    localStorage.getItem('trainingPlan')||localStorage.getItem('fenix_training_plan')||'');
   const hasPlan=!!rawPlan;
   const parsedDays=hasPlan?parsePlan(rawPlan):[];
+  // Группа 2, пункт 2: план есть, но ни одного дня не распознано
+  const planUnrecognized=hasPlan&&parsedDays.length===0;
   // Изменение (п.4): выбранный клика по карточке день — раскрывает полное описание
   // тренировки и адаптирует Совет дня под интенсивность именно этого дня.
   const [selectedDayIdx,setSelectedDayIdx]=useState(null);
@@ -2558,6 +2576,14 @@ function Body(){
       <PlanDayCards days={parsedDays} selectedIdx={selectedDayIdx} onSelect={setSelectedDayIdx}/>
     </>}
 
+    {/* Группа 2, пункт 2: план есть, но ни одного дня недели не распознано */}
+    {planUnrecognized&&<div style={{background:'#FFEBEE',borderRadius:14,padding:14,marginBottom:14,
+      border:`1px solid ${C.red}`}}>
+      <p style={{fontSize:12.5,color:C.text,lineHeight:1.5,fontWeight:600}}>
+        ⚠️ План не распознан. Убедись, что в тексте есть дни недели (понедельник, вторник...).
+      </p>
+    </div>}
+
     {/* Изменение (п.4): полное описание тренировки выбранного дня (не обрезано) */}
     {selectedDay&&<div className="card" style={{borderLeft:`4px solid ${selectedDay.dot}`}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
@@ -2571,7 +2597,7 @@ function Body(){
     <DailyAdviceCard parsedDays={parsedDays} selectedDayIdx={selectedDayIdx}/>
 
     {/* ПЛАН ТРЕНЕРА (сырой текст — редактирование) */}
-    <TrainingPlanCard/>
+    <TrainingPlanCard onPlanSaved={setRawPlan}/>
 
     {/* Если плана нет — подсказка */}
     {!hasPlan&&<div style={{background:'#FFF8E1',borderRadius:14,padding:14,marginBottom:12,
@@ -3293,7 +3319,7 @@ function App(){
     if(cachedDate===today&&cached){try{setEnergy(JSON.parse(cached));}catch{}return;}
     try{
       const transits='Юпитер в начале Льва (соедин. с натальным Солнцем), Луна в Скорпионе.';
-      const r=await callClaudeJSON(SYS_JSON,`НАТАЛЬНАЯ КАРТА:\n${natalSummary()}\nДАТА: ${today}\nТРАНЗИТЫ: ${transits}\nВерни ТОЛЬКО JSON: {"mode":"...","will":0-100,"intuition":0-100,"action":0-100,"aspect":"...","advice":"..."}`);
+      const r=await callClaudeJSON(SYS_JSON,`НАТАЛЬНАЯ КАРТА:\n${natalSummary()}\nДАТА: ${today}\nТРАНЗИТЫ: ${transits}\n\nЗАПОЛНИ ДВА РАЗНЫХ ПО СМЫСЛУ ТЕКСТА:\n1. "advice" — короткий комментарий (1 предложение) к шкалам энергии (воля/интуиция/действие), человеческим языком, без астрологических терминов.\n2. "mood" — отдельная короткая рекомендация (2–3 предложения) про повседневную жизнь, настроение, общение, отдых, внутреннее состояние. НЕ про спорт, тренировки, питание, работу или проекты. Без астрологических терминов, простым тёплым языком.\n\nВерни ТОЛЬКО JSON: {"mode":"...","will":0-100,"intuition":0-100,"action":0-100,"aspect":"...","advice":"...","mood":"..."}`);
       const merged={...ENERGY_DEF,...r};
       setEnergy(merged);
       localStorage.setItem('fenix_daily_cache',JSON.stringify(merged));
