@@ -1624,6 +1624,15 @@ function parsePlan(raw){
     if(/до\s*13[0-5]|\bлегко\b|очень легко/.test(lc))return'low';
     return fallback;
   }
+  // Пункт 1: время суток тренировки — сперва явные слова в тексте, если их
+  // нет — используем тип тренировки как разумный фолбэк.
+  function detectTimeOfDay(lc,type){
+    if(/\bутр[оа]|утренн/.test(lc))return'morning';
+    if(/\bвечер|вечерн|стадион|темпов/.test(lc))return'evening';
+    if(type==='easy'||type==='long')return'morning';
+    if(type==='interval'||type==='tempo'||type==='strength')return'evening';
+    return null; // тип не даёт однозначного ответа (напр. rest/race/other) — нейтрально
+  }
   const parts=raw.split(/(понедельник|вторник|среда|четверг|пятница|суббота|воскресенье)/gi);
   const result=[];
   for(let i=0;i<parts.length;i++){
@@ -1640,6 +1649,7 @@ function parsePlan(raw){
         day:dayInfo.s, dayFull:parts[i].trim(), dayIdx:dayInfo.i,
         type:matched.type, icon:matched.icon, label:matched.label,
         intensity:finalIntensity,
+        timeOfDay:detectTimeOfDay(lc,matched.type),
         bg:col.bg, textColor:col.text, dot:col.dot, intLabel:col.label,
         desc:content.replace(/\n+/g,' ').trim(),
         descShort:content.replace(/\n+/g,' ').trim().slice(0,140),
@@ -2391,6 +2401,29 @@ function getVitaminsNote(){
   return` Ты сейчас принимаешь ${text.slice(0,50)}${text.length>50?'…':''}${effect?` — ${effect.slice(0,80)}${effect.length>80?'…':''}, учти это сегодня.`:'.'}`;
 }
 
+// Пункт 2: детальные рекомендации по времени тренировки — используются как
+// дополнение к базовому совету дня, а не замена (питание/восстановление/вода).
+function getTimeOfDayAdvice(timeOfDay){
+  if(timeOfDay==='morning')return{
+    nutrition:' Ужин накануне — лёгкий, без тяжёлой пищи. Завтрак за 1–1.5 часа до тренировки: каша, тост с мёдом или банан. После тренировки — полноценный завтрак с белком и углеводами (яйца, творог, овсянка).',
+    recovery:' Сделай акцент на плотный завтрак после тренировки и, если получится, дневной сон 20–30 минут — это компенсирует раннюю нагрузку.',
+    water:' 200–300 мл воды перед тренировкой, ещё немного сразу после, остальное — равномерно в течение дня.',
+  };
+  if(timeOfDay==='evening')return{
+    nutrition:' Плотный обед за 3–4 часа до тренировки. Лёгкий перекус за 1–2 часа — банан или йогурт. После тренировки — ужин с белком и углеводами в течение часа, не откладывай на утро.',
+    recovery:' Приоритет вечером — контрастный душ, растяжка и полноценный сон сразу после восстановления пульса.',
+    water:' Пей равномерно в течение дня, после тренировки — восполни электролиты (щепотка соли или изотоник).',
+  };
+  return null; // время не определено — нейтральные рекомендации без изменений
+}
+// Пункт 3: предупреждение, если физический ресурс сейчас ниже 60%
+function getLowResourceWarning(){
+  const {total:baseTotal}=calcBodyResource();
+  const manualAdj=Number(localStorage.getItem('body_resource_adjustment')||0);
+  const resourceTotal=Math.max(0,Math.min(100,baseTotal+manualAdj));
+  return resourceTotal<60?` ⚠️ Твой физический ресурс сейчас ${resourceTotal}% — сегодня стоит снизить нагрузку относительно плана.`:'';
+}
+
 function getDailyAdvice(parsedDays,selectedDayIdx){
   const jsDow=new Date().getDay();
   const todayIdx=jsDow===0?6:jsDow-1;
@@ -2410,6 +2443,8 @@ function getDailyAdvice(parsedDays,selectedDayIdx){
   const moonWater=true;
 
   let recovery,nutrition,water,astro;
+  // Пункт 2: дополнение по времени тренировки (утро/вечер), если определено
+  const timeAdvice=todayPlan?getTimeOfDayAdvice(todayPlan.timeOfDay):null;
 
   // Если старт близко (≤5 дней) — приоритет смещается на подводку и снижение риска
   const raceClose=isRealToday&&nearestRace&&nearestRace.daysLeft<=5;
@@ -2422,25 +2457,132 @@ function getDailyAdvice(parsedDays,selectedDayIdx){
     nutrition=`Углеводная загрузка: увеличь долю углеводов до 60–65% рациона за 2–3 дня до старта. Последний тяжёлый приём пищи — не позже, чем за 3 часа до забега.`;
     water=`2.8–3.2 л, с акцентом на электролиты в последние сутки перед стартом. Не экспериментируй с новыми напитками в день забега.`;
   } else if(intensity==='high'){
-    recovery=`${dayWord} нагрузка высокая${todayPlan?` (${todayPlan.label.toLowerCase()})`:''} — приоритет на восстановление вечером: 15–20 мин растяжки, контрастный душ или бассейн (снимает мышечное напряжение). Если сегодня есть баня или сауна — хороший день для неё, но дай телу 2–3 часа остыть после тренировки, не сразу. Массаж лучше перенести на завтра — не в день самой высокой нагрузки.${recoveryProcs?` Учитывая твои процедуры (${recoveryProcs.slice(0,60)}${recoveryProcs.length>60?'…':''}), сегодня — хороший повод их выполнить.`:''}${raceSoonNote}`;
-    nutrition=`После интервальной или темповой — творог с бананом или протеиновый коктейль с бананом в течение 30–40 минут (белок+углеводы 1:3, восполняет гликоген). Через 1.5–2 часа — полноценный приём: курица или рыба с гречкой или рисом и овощами. Если тренировка вечером — за 2 часа до неё гречка с курицей или рис с рыбой, без тяжёлой и жирной пищи.`;
-    water=`3.0–3.5 л в этот день. Добавь электролиты (щепотка соли + лимон) после интенсивной части тренировки.`;
+    recovery=`${dayWord} нагрузка высокая${todayPlan?` (${todayPlan.label.toLowerCase()})`:''} — приоритет на восстановление вечером: 15–20 мин растяжки, контрастный душ или бассейн (снимает мышечное напряжение). Если сегодня есть баня или сауна — хороший день для неё, но дай телу 2–3 часа остыть после тренировки, не сразу. Массаж лучше перенести на завтра — не в день самой высокой нагрузки.${recoveryProcs?` Учитывая твои процедуры (${recoveryProcs.slice(0,60)}${recoveryProcs.length>60?'…':''}), сегодня — хороший повод их выполнить.`:''}${timeAdvice?timeAdvice.recovery:''}${raceSoonNote}`;
+    nutrition=`После интервальной или темповой — творог с бананом или протеиновый коктейль с бананом в течение 30–40 минут (белок+углеводы 1:3, восполняет гликоген). Через 1.5–2 часа — полноценный приём: курица или рыба с гречкой или рисом и овощами.${timeAdvice?timeAdvice.nutrition:' Если тренировка вечером — за 2 часа до неё гречка с курицей или рис с рыбой, без тяжёлой и жирной пищи.'}`;
+    water=`3.0–3.5 л в этот день. Добавь электролиты (щепотка соли + лимон) после интенсивной части тренировки.${timeAdvice?timeAdvice.water:''}`;
   } else if(intensity==='none'){
     recovery=`${dayWord} день отдыха — идеально для бассейна или сауны (30–40 минут, лёгкая нагрузка на сердечно-сосудистую систему без удара по мышцам). Йога — 20–30 минут мягкой практики, разгружает то, что зажато после нагрузок недели. Массаж — раз в 1–2 недели, лучше всего именно в день отдыха, когда мышцы не в остром напряжении.${recoveryProcs?` Твои процедуры (${recoveryProcs.slice(0,60)}${recoveryProcs.length>60?'…':''}) — сегодня лучший день для них.`:''}${raceSoonNote}`;
     nutrition=`Обычный режим питания без строгих ограничений: овощи, белок (яйца, творог, курица), сложные углеводы (гречка, овсянка). Хороший день для разнообразного меню — организм не тратит ресурс на переваривание перед или после нагрузки.`;
     water='2.2–2.5 л — стандартная норма без поправки на нагрузку.';
   } else {
-    recovery=`${dayWord} умеренная нагрузка — 10 минут растяжки после тренировки достаточно. Сон не менее 7.5 часов для восстановления. Лёгкая йога вечером (10–15 минут) поможет снять накопленное напряжение, не перегружая тело.${tomorrowPlan&&tomorrowPlan.intensity==='high'?` На следующий день у тебя ${tomorrowPlan.label.toLowerCase()} — вечером особенно важно лечь пораньше.`:''}${raceSoonNote}`;
-    nutrition=`За 2–3 часа до тренировки — гречка с курицей или рис с рыбой (медленные углеводы + белок, без тяжести в желудке). После — йогурт с орехами или творог с ягодами в течение часа.`;
-    water='2.5–2.8 л с учётом умеренной нагрузки. Пей небольшими порциями каждый час.';
+    recovery=`${dayWord} умеренная нагрузка — 10 минут растяжки после тренировки достаточно. Сон не менее 7.5 часов для восстановления. Лёгкая йога вечером (10–15 минут) поможет снять накопленное напряжение, не перегружая тело.${tomorrowPlan&&tomorrowPlan.intensity==='high'?` На следующий день у тебя ${tomorrowPlan.label.toLowerCase()} — вечером особенно важно лечь пораньше.`:''}${timeAdvice?timeAdvice.recovery:''}${raceSoonNote}`;
+    nutrition=`За 2–3 часа до тренировки — гречка с курицей или рис с рыбой (медленные углеводы + белок, без тяжести в желудке). После — йогурт с орехами или творог с ягодами в течение часа.${timeAdvice?timeAdvice.nutrition:''}`;
+    water=`2.5–2.8 л с учётом умеренной нагрузки. Пей небольшими порциями каждый час.${timeAdvice?timeAdvice.water:''}`;
   }
 
   astro=`Луна в ${moonSign} — ${moonWater?'водный знак, благоприятствует водным процедурам и глубокому восстановлению' : 'хороший фон для дисциплины и структуры'}. Юпитер в Льве усиливает эффект любых вложений в тело сейчас.`;
-  // Пункт 2: учитываем текущий приём витаминов/добавок в тексте восстановления
-  recovery=recovery+getVitaminsNote();
+  // Пункт 2/3: учитываем текущий приём витаминов и физический ресурс в тексте восстановления
+  recovery=recovery+getVitaminsNote()+getLowResourceWarning();
   const tactic=getTacticalTip(todayPlan);
 
   return {recovery,nutrition,water,astro,tactic,todayPlan,tomorrowPlan,nearestRace,isRealToday};
+}
+
+/* ======= STATE FORECAST (Прогноз состояния — новый блок в разделе «Тело») ======= */
+// Пункт 2: собираем все нужные данные из уже существующих источников
+// (план тренировок, витамины, физический ресурс) в одном месте.
+function getBodyForecastInputs(){
+  const rawPlan=localStorage.getItem('trainingPlan')||localStorage.getItem('fenix_training_plan')||'';
+  const parsedDays=rawPlan?parsePlan(rawPlan):[];
+  const jsDow=new Date().getDay();
+  const todayIdx=jsDow===0?6:jsDow-1;
+  const todayPlan=parsedDays.find(d=>d.dayIdx===todayIdx)||null;
+  const vitaminsText=localStorage.getItem('body_vitamins_text')||'';
+  const vitaminsEffect=localStorage.getItem('body_vitamins_effect')||'';
+  const {total:baseTotal}=calcBodyResource();
+  const manualAdj=Number(localStorage.getItem('body_resource_adjustment')||0);
+  const resourceTotal=Math.max(0,Math.min(100,baseTotal+manualAdj));
+  return{hasPlan:!!rawPlan,todayPlan,vitaminsText,vitaminsEffect,resourceTotal};
+}
+// Пункт 5: сигнатура входных данных — прогноз пересчитывается не только раз
+// в день, но и сразу же, если изменился план, витамины или корректировка ресурса.
+function getForecastSignature(inputs){
+  const today=new Date().toISOString().slice(0,10);
+  const planSig=inputs.todayPlan?`${inputs.todayPlan.type}|${inputs.todayPlan.intensity}|${inputs.todayPlan.timeOfDay||''}`:'none';
+  return`${today}||${planSig}||${inputs.vitaminsText}||${inputs.vitaminsEffect}||${inputs.resourceTotal}`;
+}
+// Пункт 3: если данных нет вовсе — общая рекомендация без обращения к Claude.
+// Если данные частично есть, но офлайн/нет ключа — локальный содержательный фолбэк.
+function getBodyForecastFallback(inputs){
+  if(!inputs.hasPlan&&!inputs.vitaminsText.trim()){
+    return'Загрузи план тренировок и укажи витамины для персонализированного прогноза. Пока могу сказать: слушай тело и не форсируй нагрузку, если чувствуешь усталость.';
+  }
+  const parts=[];
+  if(inputs.todayPlan){
+    const timeWord=inputs.todayPlan.timeOfDay==='morning'?' утром':inputs.todayPlan.timeOfDay==='evening'?' вечером':'';
+    parts.push(`Сегодня по плану — ${inputs.todayPlan.label.toLowerCase()}${timeWord}.`);
+  }
+  parts.push(`Физический ресурс сейчас — ${inputs.resourceTotal}%.`);
+  if(inputs.vitaminsText.trim())parts.push(`Учитывай текущий приём: ${inputs.vitaminsText.slice(0,60)}${inputs.vitaminsText.length>60?'…':''}.`);
+  parts.push('Слушай сигналы тела и корректируй нагрузку по самочувствию, а не только по плану.');
+  return parts.join(' ');
+}
+// Пункт 3: генерация прогноза через Claude, когда есть за что зацепиться (план или витамины)
+async function generateBodyForecast(inputs){
+  const planText=inputs.todayPlan
+    ?`Сегодня по плану: ${inputs.todayPlan.label} (${inputs.todayPlan.intLabel.toLowerCase()} интенсивность)${inputs.todayPlan.timeOfDay?`, время тренировки: ${inputs.todayPlan.timeOfDay==='morning'?'утро':'вечер'}`:''}. Детали из плана: ${inputs.todayPlan.desc.slice(0,200)}`
+    :'План тренировок на сегодня не загружен или день без тренировки.';
+  const vitText=inputs.vitaminsText.trim()
+    ?`Сейчас принимает: ${inputs.vitaminsText}.${inputs.vitaminsEffect?` Как это влияет на восстановление: ${inputs.vitaminsEffect}.`:''}`
+    :'Витамины и добавки не указаны.';
+  const prompt=`НАТАЛЬНАЯ КАРТА:\n${natalSummary()}\n\n${planText}\n${vitText}\nФизический ресурс сейчас (с учётом ручной корректировки): ${inputs.resourceTotal}%.\n\nСоставь короткий ёмкий прогноз состояния тела на сегодня — 3–5 предложений, простым тёплым языком, без астрологических и медицинских терминов. Структура: 1) описание текущего состояния и возможных сигналов тела; 2) 2–3 конкретных действия на сегодня; 3) короткое напутствие в конце.\nВерни ТОЛЬКО JSON: {"forecast":"весь текст одним полем, 3-5 предложений"}`;
+  const res=await callClaudeJSON(SYS_JSON,prompt);
+  return res.forecast||'';
+}
+
+const BF_CACHE_KEY='body_forecast_cache';
+const BF_SIG_KEY='body_forecast_sig';
+
+function StateForecastCard(){
+  const inputs=getBodyForecastInputs();
+  const sig=getForecastSignature(inputs);
+  const hasData=inputs.hasPlan||inputs.vitaminsText.trim().length>0;
+
+  const [forecast,setForecast]=useState(()=>{
+    if(localStorage.getItem(BF_SIG_KEY)===sig){
+      const c=localStorage.getItem(BF_CACHE_KEY);
+      if(c)return c;
+    }
+    return hasData?null:getBodyForecastFallback(inputs);
+  });
+  const [loading,setLoading]=useState(false);
+
+  // Пункт 5: пересчитываем при каждом монтировании вкладки «Тело» и всегда,
+  // когда меняется сигнатура (план/витамины/корректировка ресурса/дата).
+  useEffect(()=>{
+    if(localStorage.getItem(BF_SIG_KEY)===sig&&localStorage.getItem(BF_CACHE_KEY))return;
+    if(!hasData){
+      const fb=getBodyForecastFallback(inputs);
+      setForecast(fb);
+      localStorage.setItem(BF_CACHE_KEY,fb);
+      localStorage.setItem(BF_SIG_KEY,sig);
+      return;
+    }
+    let cancelled=false;
+    setLoading(true);
+    generateBodyForecast(inputs)
+      .then(text=>{
+        if(cancelled||!text)return;
+        setForecast(text);
+        localStorage.setItem(BF_CACHE_KEY,text);
+        localStorage.setItem(BF_SIG_KEY,sig);
+      })
+      .catch(()=>{
+        if(cancelled)return;
+        setForecast(getBodyForecastFallback(inputs)); // нет ключа/сети — локальный фолбэк
+      })
+      .finally(()=>{if(!cancelled)setLoading(false);});
+    return()=>{cancelled=true;};
+  },[sig]);
+
+  return <div className="card" style={{borderLeft:`3px solid ${C.indigo}`}}>
+    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
+      <span style={{fontSize:18}}>🔮</span>
+      <div className="card-title" style={{marginBottom:0}}>Прогноз состояния</div>
+      {loading&&<span style={{marginLeft:'auto',fontSize:10,color:C.sub}}>обновляю…</span>}
+    </div>
+    <p className="body12">{forecast||'Загружаю прогноз…'}</p>
+  </div>;
 }
 
 function DailyAdviceCard({parsedDays,selectedDayIdx}){
@@ -2627,7 +2769,7 @@ function getDynamicRisk(){
 }
 
 // Пункт 4: приём витаминов и добавок — свободный текст + дата начала
-function VitaminsCard(){
+function VitaminsCard({onSaved}){
   const [text,setText]=useState(()=>localStorage.getItem('body_vitamins_text')||'');
   const [since,setSince]=useState(()=>localStorage.getItem('body_vitamins_since')||'');
   // Пункт 2: короткое примечание о влиянии на восстановление — Совет дня его учитывает
@@ -2638,6 +2780,7 @@ function VitaminsCard(){
     localStorage.setItem('body_vitamins_since',since);
     localStorage.setItem('body_vitamins_effect',effect);
     setSaved(true);setTimeout(()=>setSaved(false),2000);
+    onSaved&&onSaved(); // сообщаем Body — Прогноз состояния пересчитается сразу
   };
   return <div className="card">
     <div className="card-title">💊 Приём витаминов и добавок</div>
@@ -2675,6 +2818,15 @@ function Body(){
   // сразу же, без необходимости уходить с экрана и возвращаться.
   const [rawPlan,setRawPlan]=useState(()=>
     localStorage.getItem('trainingPlan')||localStorage.getItem('fenix_training_plan')||'');
+  // Группа 2, пункт 5: при каждом открытии вкладки «Тело» (монтировании
+  // компонента) перечитываем план из localStorage — на случай, если он был
+  // изменён где-то ещё, пока вкладка была закрыта. Совет дня и карточки
+  // тренировок пересчитываются автоматически, так как parsedDays — производная
+  // от rawPlan, а не отдельное состояние.
+  useEffect(()=>{
+    const fresh=localStorage.getItem('trainingPlan')||localStorage.getItem('fenix_training_plan')||'';
+    setRawPlan(fresh);
+  },[]);
   const hasPlan=!!rawPlan;
   const parsedDays=hasPlan?parsePlan(rawPlan):[];
   // Группа 2, пункт 2: план есть, но ни одного дня не распознано
@@ -2682,6 +2834,10 @@ function Body(){
   // Изменение (п.4): выбранный клика по карточке день — раскрывает полное описание
   // тренировки и адаптирует Совет дня под интенсивность именно этого дня.
   const [selectedDayIdx,setSelectedDayIdx]=useState(null);
+  // Пункт 5: триггер ре-рендера Body при сохранении витаминов (сами данные
+  // читаются из localStorage внутри StateForecastCard/getDailyAdvice — этот
+  // счётчик нужен только чтобы форсировать пересчёт сразу после сохранения).
+  const [vitaminsTick,setVitaminsTick]=useState(0);
   const selectedDay=selectedDayIdx!==null?parsedDays.find(d=>d.dayIdx===selectedDayIdx):null;
 
   return <div className="screen"><div className="pad">
@@ -2734,6 +2890,9 @@ function Body(){
     {/* Совет дня: Восстановление / Питание / Вода — адаптируется под выбранный день */}
     <DailyAdviceCard parsedDays={parsedDays} selectedDayIdx={selectedDayIdx}/>
 
+    {/* Пункт 1: Прогноз состояния — под Советом дня, на основе плана, витаминов и ресурса */}
+    <StateForecastCard/>
+
     {/* ПЛАН ТРЕНЕРА (сырой текст — редактирование) */}
     <TrainingPlanCard onPlanSaved={setRawPlan}/>
 
@@ -2749,7 +2908,7 @@ function Body(){
 
     {/* Пункт 4/11: блок «Регулярные процедуры» убран — восстановление
         (йога/сауна/бассейн/массаж) уже разбирается внутри Совета дня */}
-    <VitaminsCard/>
+    <VitaminsCard onSaved={()=>setVitaminsTick(t=>t+1)}/>
 
     {/* Физический ресурс */}
     <div className="res-widget">
