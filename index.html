@@ -1691,6 +1691,65 @@ function OracleAnswerBlock({text}){
 }
 
 // Пункт 1: индикатор «Феникс печатает…» — показывается, пока isTyping===true
+// Пункт 6: категоризация вопросов Оракула по ключевым словам — для Аналитики
+const ORACLE_CATEGORY_KEYWORDS={
+  'Scrap':['scrap','металл','завод','лом'],
+  'Hub':['hub','сайт','лендинг'],
+  'База':['база отдых','участ','девелоп','загород'],
+  'Переговоры':['перегово','встреч','контракт','партнёр','сделк'],
+  'Здоровье':['здоровь','самочувств','сон','энерги','устал'],
+  'Тренировки':['тренир','марафон','бег','кросс','интервал','темп'],
+  'Отношения':['отношени','семь','друз','девушк','конфликт'],
+};
+function categorizeQuestion(text){
+  const lc=(text||'').toLowerCase();
+  const matched=Object.keys(ORACLE_CATEGORY_KEYWORDS).filter(cat=>ORACLE_CATEGORY_KEYWORDS[cat].some(w=>lc.includes(w)));
+  return matched.length>0?matched:['Другое'];
+}
+function getOracleAnalytics(hist){
+  const catCounts={};const catRatings={};
+  const WD=['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
+  const dowCounts=[0,0,0,0,0,0,0];
+  hist.forEach(h=>{
+    categorizeQuestion(h.q).forEach(c=>{
+      catCounts[c]=(catCounts[c]||0)+1;
+      if(h.rating>0){(catRatings[c]=catRatings[c]||[]).push(h.rating);}
+    });
+    try{
+      const d=new Date(h.date+'T00:00:00');
+      const dow=d.getDay();
+      dowCounts[dow===0?6:dow-1]++;
+    }catch{}
+  });
+  const topThemes=Object.entries(catCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const avgRatings={};
+  Object.keys(catRatings).forEach(c=>{
+    const arr=catRatings[c];
+    avgRatings[c]=(arr.reduce((s,v)=>s+v,0)/arr.length).toFixed(1);
+  });
+  return{topThemes,dowCounts,avgRatings,WD};
+}
+function AnalyticsView({hist}){
+  if(hist.length===0)return<p style={{fontSize:12,color:C.sub,textAlign:'center',padding:'20px 0'}}>Пока нет вопросов для анализа.</p>;
+  const a=getOracleAnalytics(hist);
+  const maxDow=Math.max(...a.dowCounts,1);
+  return<div>
+    <div style={{fontSize:11,fontWeight:700,color:C.sub,marginBottom:8,textTransform:'uppercase',letterSpacing:.3}}>Топ-5 тем</div>
+    {a.topThemes.map(([cat,count],i)=><div key={cat} style={{display:'flex',justifyContent:'space-between',
+      padding:'7px 0',borderBottom:`1px solid ${C.border}`}}>
+      <span style={{fontSize:12.5,color:C.text}}>{i+1}. {cat}</span>
+      <span style={{fontSize:11.5,color:C.sub}}>{count} {count===1?'вопрос':count<5?'вопроса':'вопросов'}{a.avgRatings[cat]?` · ${a.avgRatings[cat]}⭐`:''}</span>
+    </div>)}
+    <div style={{fontSize:11,fontWeight:700,color:C.sub,margin:'16px 0 10px',textTransform:'uppercase',letterSpacing:.3}}>По дням недели</div>
+    <div style={{display:'flex',gap:6,alignItems:'flex-end',height:70}}>
+      {a.WD.map((wd,i)=><div key={wd} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+        <div style={{width:'100%',height:Math.max(4,(a.dowCounts[i]/maxDow)*56),background:C.indigo,borderRadius:4}}/>
+        <span style={{fontSize:9,color:C.sub}}>{wd}</span>
+      </div>)}
+    </div>
+  </div>;
+}
+
 function TypingIndicator(){
   return <div className="typing-indicator">
     <span className="ti-label">🦅 Феникс печатает</span>
@@ -1720,6 +1779,10 @@ function Oracle(){
   const [modes,setModes]=useState([]); // Пункт 2: выбранные углы зрения ('astro'|'psycho'|'esoteric')
   const [busy,setBusy]=useState(false);
   const [isTyping,setIsTyping]=useState(false); // Пункт 1: индикатор «Феникс печатает…»
+  // Пункт 6: голосовой ввод (Web Speech API) — только в режиме «Вопрос»
+  const [listening,setListening]=useState(false);
+  // Пункт 6: переключатель Все вопросы / Аналитика внутри блока Истории
+  const [histView,setHistView]=useState('list');
   const [ans,setAns]=useState(null); // {mode, text, res}
   const [err,setErr]=useState('');
   const [copied,setCopied]=useState(false);
@@ -1849,6 +1912,23 @@ ${historyText}
   };
   const toggleMode=k=>setModes(p=>p.includes(k)?p.filter(x=>x!==k):[...p,k]);
 
+  // Пункт 6: голосовой ввод — распознанный текст добавляется в поле вопроса
+  const startVoiceInput=()=>{
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR){alert('Голосовой ввод не поддерживается в этом браузере.');return;}
+    if(listening)return;
+    const rec=new SR();
+    rec.lang='ru-RU';rec.interimResults=false;rec.maxAlternatives=1;
+    rec.onresult=(e)=>{
+      const transcript=e.results[0][0].transcript;
+      setQ(prev=>prev.trim()?`${prev.trim()} ${transcript}`:transcript);
+    };
+    rec.onend=()=>setListening(false);
+    rec.onerror=()=>setListening(false);
+    setListening(true);
+    rec.start();
+  };
+
   // Два шаблона для послеобеденного спада — подставляют текущие дату и время:
   // «Быстрый совет» — коротко (еда/напиток + одно действие на 2–5 минут);
   // «Разбор спада» — развёрнуто (состояние + 3 пункта: сейчас/реакция/профилактика).
@@ -1941,7 +2021,15 @@ ${historyText}
     {/* ---- FREE QUESTION ---- */}
     {mode==='quick'&&<div className="card">
       <label className="label11">Вопрос или ситуация</label>
-      <textarea className="oracle-input" value={q} onChange={e=>setQ(e.target.value)} placeholder="Введите ваш вопрос"/>
+      <div style={{position:'relative'}}>
+        <textarea className="oracle-input" value={q} onChange={e=>setQ(e.target.value)} placeholder="Введите ваш вопрос"/>
+        <button type="button" onClick={startVoiceInput} title="Голосовой ввод"
+          style={{position:'absolute',right:8,bottom:8,width:34,height:34,borderRadius:17,
+          border:'none',background:listening?C.red:C.indigo,color:'#fff',fontSize:15,cursor:'pointer',
+          boxShadow:'0 2px 8px rgba(0,0,0,.15)'}}>
+          {listening?'●':'🎙️'}
+        </button>
+      </div>
       <div style={{marginTop:10}}>
         <label className="label11">Выбери угол зрения (можно несколько)</label>
         <div className="lens-row">
@@ -2005,7 +2093,17 @@ ${historyText}
 
     {/* ---- HISTORY ---- */}
     {hist.length>0&&<div className="card">
-      <div className="card-title">История</div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+        <div className="card-title" style={{marginBottom:0}}>История</div>
+        <div style={{display:'flex',gap:6}}>
+          <button onClick={()=>setHistView('list')} style={{fontSize:11,fontWeight:histView==='list'?700:400,
+            color:histView==='list'?C.indigo:C.sub,background:'none',border:'none',cursor:'pointer'}}>Все вопросы</button>
+          <span style={{color:C.border}}>·</span>
+          <button onClick={()=>setHistView('analytics')} style={{fontSize:11,fontWeight:histView==='analytics'?700:400,
+            color:histView==='analytics'?C.indigo:C.sub,background:'none',border:'none',cursor:'pointer'}}>Аналитика</button>
+        </div>
+      </div>
+      {histView==='analytics'?<AnalyticsView hist={hist}/>:<>
       {hist.slice(0,10).map(h=>{
         const exp=expandedId===h.id;
         return<div key={h.id} className="hist-item">
@@ -2029,6 +2127,7 @@ ${historyText}
           </div>}
         </div>;
       })}
+      </>}
     </div>}
   </div></div>;
 }
@@ -2266,6 +2365,32 @@ function RecoveryProceduresCard(){
 }
 
 /* ======= DAILY ADVICE (Восстановление / Питание / Вода) ======= */
+// Пункт 2: тактическая рекомендация — сперва пробуем найти явный темп/пульс
+// в тексте самого плана тренера, если нет — общий тактический совет по типу.
+function getTacticalTip(todayPlan){
+  if(!todayPlan||todayPlan.type==='rest')return null;
+  const paceMatch=todayPlan.desc.match(/темп[е]?\s*(\d:\d\d)(?:[–\-](\d:\d\d))?/i);
+  const hrMatch=todayPlan.desc.match(/до\s*(\d{2,3})/i);
+  if(paceMatch)return`Держи темп ${paceMatch[1]}${paceMatch[2]?`–${paceMatch[2]}`:''} на км — это ориентир из плана тренера, не отклоняйся в первые километры.`;
+  if(hrMatch)return`Следи за пульсом — держи его в районе ${hrMatch[1]} уд/мин, особенно в первой трети тренировки.`;
+  const TACTIC_BY_TYPE={
+    interval:'На отрезках — ровный темп от первого до последнего повторения, не старайся ускоряться к концу.',
+    tempo:'Держи заявленный темп с первых метров — «разгон» в середине темповой обычно означает, что старт был слишком лёгким.',
+    long:'Первую треть дистанции беги заметно легче, чем кажется нужным — темп догонишь во второй половине.',
+    easy:'Темп разговорный — если сбивается дыхание для разговора, ты бежишь слишком быстро для кросса.',
+    race:'Не форсируй первые 2 км — дай телу выйти на рабочий пульс, ускорение оставь на вторую половину.',
+    strength:'Держи технику важнее числа повторений — лучше меньше подходов, но чисто.',
+  };
+  return TACTIC_BY_TYPE[todayPlan.type]||null;
+}
+// Пункт 2: короткая заметка о текущем приёме витаминов — встраивается в Восстановление
+function getVitaminsNote(){
+  const text=localStorage.getItem('body_vitamins_text')||'';
+  const effect=localStorage.getItem('body_vitamins_effect')||'';
+  if(!text.trim())return'';
+  return` Ты сейчас принимаешь ${text.slice(0,50)}${text.length>50?'…':''}${effect?` — ${effect.slice(0,80)}${effect.length>80?'…':''}, учти это сегодня.`:'.'}`;
+}
+
 function getDailyAdvice(parsedDays,selectedDayIdx){
   const jsDow=new Date().getDay();
   const todayIdx=jsDow===0?6:jsDow-1;
@@ -2311,8 +2436,11 @@ function getDailyAdvice(parsedDays,selectedDayIdx){
   }
 
   astro=`Луна в ${moonSign} — ${moonWater?'водный знак, благоприятствует водным процедурам и глубокому восстановлению' : 'хороший фон для дисциплины и структуры'}. Юпитер в Льве усиливает эффект любых вложений в тело сейчас.`;
+  // Пункт 2: учитываем текущий приём витаминов/добавок в тексте восстановления
+  recovery=recovery+getVitaminsNote();
+  const tactic=getTacticalTip(todayPlan);
 
-  return {recovery,nutrition,water,astro,todayPlan,tomorrowPlan,nearestRace,isRealToday};
+  return {recovery,nutrition,water,astro,tactic,todayPlan,tomorrowPlan,nearestRace,isRealToday};
 }
 
 function DailyAdviceCard({parsedDays,selectedDayIdx}){
@@ -2330,6 +2458,10 @@ function DailyAdviceCard({parsedDays,selectedDayIdx}){
       <div className="advice-sub-head"><span className="as-icon">🧖</span><span className="as-title">Восстановление</span></div>
       <p>{advice.recovery}</p>
     </div>
+    {advice.tactic&&<div className="advice-sub">
+      <div className="advice-sub-head"><span className="as-icon">🎯</span><span className="as-title">Тактика</span></div>
+      <p>{advice.tactic}</p>
+    </div>}
     <div className="advice-sub">
       <div className="advice-sub-head"><span className="as-icon">🍽</span><span className="as-title">Питание</span></div>
       <p>{advice.nutrition}</p>
@@ -2498,10 +2630,13 @@ function getDynamicRisk(){
 function VitaminsCard(){
   const [text,setText]=useState(()=>localStorage.getItem('body_vitamins_text')||'');
   const [since,setSince]=useState(()=>localStorage.getItem('body_vitamins_since')||'');
+  // Пункт 2: короткое примечание о влиянии на восстановление — Совет дня его учитывает
+  const [effect,setEffect]=useState(()=>localStorage.getItem('body_vitamins_effect')||'');
   const [saved,setSaved]=useState(false);
   const save=()=>{
     localStorage.setItem('body_vitamins_text',text);
     localStorage.setItem('body_vitamins_since',since);
+    localStorage.setItem('body_vitamins_effect',effect);
     setSaved(true);setTimeout(()=>setSaved(false),2000);
   };
   return <div className="card">
@@ -2511,6 +2646,9 @@ function VitaminsCard(){
       onChange={e=>setText(e.target.value)} placeholder="D3, омега-3, магний…"/>
     <label className="label11" style={{marginTop:8}}>Начал приём с</label>
     <input type="date" className="race-form-input" value={since} onChange={e=>setSince(e.target.value)}/>
+    <label className="label11" style={{marginTop:8}}>Как влияет на восстановление</label>
+    <textarea className="journal-textarea" style={{minHeight:44}} value={effect}
+      onChange={e=>setEffect(e.target.value)} placeholder="напр. «Магний — помогает снять мышечное напряжение после интервалов»"/>
     <button className="add-btn" onClick={save}>{saved?'✓ Сохранено':'Сохранить'}</button>
   </div>;
 }
@@ -2644,24 +2782,6 @@ function Body(){
           style={{width:38,height:38,borderRadius:19,border:`1.5px solid ${C.border}`,background:'#fff',
           fontSize:18,fontWeight:700,color:C.indigo,cursor:'pointer',opacity:manualAdj>=20?.4:1}}>+5</button>
       </div>
-    </div>
-
-    <div className="card">
-      <div className="card-title">Транзитные факторы</div>
-      {factors.map((f,i)=><div key={i} className="factor-row">
-        <div>
-          <div className="factor-label">{f.l}</div>
-          <div style={{fontSize:10,color:C.sub}}>{f.d}</div>
-        </div>
-        <div className="factor-val" style={{color:f.v>0?C.green:C.red}}>{f.v>0?'+':''}{f.v}%</div>
-      </div>)}
-    </div>
-
-    {/* Пункт 4: динамический риск — окно считается от сегодняшней даты */}
-    <div style={{background:'#FFF3E0',borderRadius:16,padding:16,
-      border:`1px solid ${C.gold}`}}>
-      <div style={{fontSize:13,fontWeight:700,marginBottom:6}}>⚠️ Ближайший риск</div>
-      <p className="body12">{getDynamicRisk()}</p>
     </div>
   </div></div>;
 }
@@ -2849,6 +2969,25 @@ function Journal({onBack}){
   </div></div>;
 }
 
+// Пункт 4: рекомендации на уровне всей Библиотеки — не привязаны к одному
+// проекту. Если есть оценки — анализируем лучшую книгу, если нет — дефолты
+// по темам (металлургия/индустрия, спорт и бизнес).
+function getLibraryRecommendations(){
+  const rated=getBooks().filter(b=>b.rating>0);
+  if(rated.length===0){
+    return{mode:'default',items:[
+      {title:'Цель',author:'Элияху Голдратт',reason:'Классика по теме металлургии и производства — близко к Recovery Scrap.'},
+      {title:'Атомные привычки',author:'Джеймс Клир',reason:'Про спорт и бизнес-дисциплину — перекликается с Recovery Hub.'},
+    ]};
+  }
+  const top=rated.slice().sort((a,b)=>b.rating-a.rating)[0];
+  const avg=rated.reduce((s,b)=>s+b.rating,0)/rated.length;
+  return{mode:'personal',avg,items:[
+    {title:`В духе «${top.title}»`,author:top.author||'',
+      reason:`Твоя лучшая оценка (${top.rating}⭐) — ищи книги того же автора или похожей темы.`},
+  ]};
+}
+
 /* ======= LIBRARY (Библиотека) ======= */
 function Library({onBack,initialFilter}){
   const [entries,setEntries]=useState(getAllJournalEntries);
@@ -2888,9 +3027,24 @@ function Library({onBack,initialFilter}){
   const delBook=id=>{if(window.confirm('Удалить книгу?'))persist(entries.filter(e=>e.id!==id));};
 
   const PROJ_LABEL={scrap:'Scrap',hub:'Hub',base:'База','':'Общее'};
+  const recs=getLibraryRecommendations();
 
   return <div className="screen"><div className="pad">
     <BackHead title="📚 Библиотека" onBack={onBack}/>
+
+    {/* Пункт 4: блок Рекомендации — по оценкам, если есть, иначе по темам */}
+    <div className="card" style={{borderLeft:`3px solid ${C.gold}`}}>
+      <div className="card-title">🎯 Рекомендации</div>
+      {recs.mode==='default'&&<p style={{fontSize:11.5,color:C.sub,marginBottom:8}}>
+        Пока нет оценённых книг — вот общие рекомендации по темам.
+      </p>}
+      {recs.items.map((b,i)=><div key={i} style={{marginBottom:i<recs.items.length-1?10:0,
+        paddingBottom:i<recs.items.length-1?10:0,borderBottom:i<recs.items.length-1?`1px solid ${C.border}`:'none'}}>
+        <div style={{fontSize:13,fontWeight:700,color:C.text}}>{b.title}</div>
+        {b.author&&<div style={{fontSize:11,color:C.sub}}>{b.author}</div>}
+        <div style={{fontSize:12,color:C.sub,marginTop:3,lineHeight:1.45}}>{b.reason}</div>
+      </div>)}
+    </div>
 
     <div style={{display:'flex',gap:8,marginBottom:10,flexWrap:'wrap'}}>
       {[['all','Все'],['scrap','Scrap'],['hub','Hub'],['base','База']].map(([k,l])=>
@@ -3189,6 +3343,55 @@ function getMoonPhase(date){
   if(pct<0.78)return{name:'Последняя четверть',verdict:'Отпускай то, что не сработало — расчисти пространство под следующий цикл.'};
   return{name:'Убывающая Луна',verdict:'Замедлись и восстанавливайся — новый цикл начнётся уже скоро, силы понадобятся.'};
 }
+// Пункт 5: конкретные датированные шаги для карточки «Сегодня для тебя»
+function getTodayActions(){
+  const now=new Date();
+  const fmt=d=>`${d.getDate()} ${d.toLocaleDateString('ru-RU',{month:'long'})}`;
+  const in3=new Date(now);in3.setDate(now.getDate()+3);
+  return[
+    getDynamicRisk(),
+    `${fmt(in3)} — хороший день сверить внутренний компас: спроси себя, что из текущих дел действительно твоё.`,
+  ];
+}
+// Пункт 5: датированные шаги для «Фон вокруг» — считаются от ближайших дня недели
+function getBgActions(){
+  const now=new Date();
+  const dow=now.getDay();
+  const daysToFriday=((5-dow+7)%7)||7;
+  const friday=new Date(now);friday.setDate(now.getDate()+daysToFriday);
+  const nextMonday=new Date(friday);nextMonday.setDate(friday.getDate()+3);
+  const fmt=d=>`${d.getDate()} ${d.toLocaleDateString('ru-RU',{month:'long'})}`;
+  return[
+    `до ${fmt(friday)} — закрой зависшие вопросы в переписке, не откладывай на следующую неделю.`,
+    `${fmt(nextMonday)} — хороший день начать новый разговор или предложение, фон будет более располагающим.`,
+  ];
+}
+// Пункт 5: «Большая картина» — ближайшие 2 ключевые даты из известных вех проектов
+function getBigPictureActions(){
+  const now=new Date();
+  const y=now.getFullYear();
+  const events=[
+    {date:new Date(y,6,20),text:'заверши анализ контрактов по Scrap — заканчивается фаза Тишины.'},
+    {date:new Date(y,6,22),text:'твой день рождения — хорошо для публичных инициатив, а не только внутренней работы.'},
+    {date:new Date(y,7,6),text:'начинается «Золотой коридор» — открывай то, что готовил тихо.'},
+    {date:new Date(y,8,1),text:'дедлайн Recovery Scrap — всё должно быть готово к этому дню.'},
+  ];
+  const fmt=d=>`${d.getDate()} ${d.toLocaleDateString('ru-RU',{month:'long'})}`;
+  const upcoming=events.filter(e=>e.date>=new Date(now.getFullYear(),now.getMonth(),now.getDate()))
+    .sort((a,b)=>a.date-b.date).slice(0,2);
+  return upcoming.length>0?upcoming.map(e=>`${fmt(e.date)} — ${e.text}`):['Ключевые вехи года пока впереди — следи за обновлениями в разделе «Проекты».'];
+}
+// Пункт 5: компактный рендер блока «Что делать»
+function WhatToDo({items}){
+  if(!items||items.length===0)return null;
+  return <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+    <div style={{fontSize:11,fontWeight:700,color:C.sub,marginBottom:6,textTransform:'uppercase',letterSpacing:.3}}>Что делать</div>
+    {items.map((it,i)=><div key={i} style={{fontSize:12,color:C.text,lineHeight:1.5,marginBottom:i<items.length-1?5:0}}>
+      {i+1}) {it}
+    </div>)}
+  </div>;
+}
+
 function AstroDigest({onBack}){
   const now=new Date();
   const moon=getMoonPhase(now);
@@ -3209,14 +3412,17 @@ function AstroDigest({onBack}){
     <div className="card">
       <div className="card-title">🧘 Сегодня для тебя</div>
       <p className="body12">{moon.name}. {moon.verdict}</p>
+      <WhatToDo items={getTodayActions()}/>
     </div>
     <div className="card">
       <div className="card-title">👥 Фон вокруг</div>
       <p className="body12">{bg}</p>
+      <WhatToDo items={getBgActions()}/>
     </div>
     <div className="card">
       <div className="card-title">🌍 Большая картина</div>
       <p className="body12">{bigPicture}</p>
+      <WhatToDo items={getBigPictureActions()}/>
     </div>
   </div></div>;
 }
