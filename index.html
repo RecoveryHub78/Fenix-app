@@ -505,17 +505,17 @@ body{
 .day-cards-scroll{display:flex;gap:11px;overflow-x:auto;padding:2px 2px 11px;margin-bottom:5px;
   -webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;}
 .day-cards-scroll::-webkit-scrollbar{display:none;}
-.day-card{flex:0 0 136px;scroll-snap-align:start;border-radius:16px;padding:14px;
-  box-shadow:0 2px 10px rgba(26,35,126,.08);transition:transform .15s ease;}
+.day-card{flex:0 0 142px;scroll-snap-align:start;border-radius:18px;padding:16px;
+  box-shadow:0 4px 14px rgba(26,35,126,.1);border:1px solid rgba(255,255,255,.6);transition:transform .15s ease;}
 .day-card:active{transform:scale(.96);}
-.day-card .dc-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;}
+.day-card .dc-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
 .day-card .dc-day{font-size:12.5px;font-weight:700;}
 .day-card .dc-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
-.day-card .dc-icon{font-size:24px;margin-bottom:7px;}
-.day-card .dc-label{font-size:12.5px;font-weight:700;margin-bottom:5px;}
-.day-card .dc-desc{font-size:11px;line-height:1.5;opacity:.85;}
+.day-card .dc-icon{font-size:25px;margin-bottom:8px;}
+.day-card .dc-label{font-size:12.5px;font-weight:700;margin-bottom:6px;}
+.day-card .dc-desc{font-size:11px;line-height:1.55;opacity:.85;}
 .day-card.today{outline:2.5px solid var(--indigo);outline-offset:-2px;}
-.day-card-today-flag{font-size:8.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;opacity:.75;margin-top:5px;}
+.day-card-today-flag{font-size:8.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;opacity:.75;margin-top:6px;}
 
 /* (п.7) Совет дня — насыщенный градиент, золотые заголовки подразделов */
 .advice-card{background:linear-gradient(135deg,#1A237E 0%,#283593 100%);border-radius:20px;padding:19px;
@@ -2396,9 +2396,15 @@ function getTacticalTip(todayPlan){
 // Пункт 2: короткая заметка о текущем приёме витаминов — встраивается в Восстановление
 function getVitaminsNote(){
   const text=localStorage.getItem('body_vitamins_text')||'';
-  const effect=localStorage.getItem('body_vitamins_effect')||'';
+  const rawEffect=localStorage.getItem('body_vitamins_effect')||'';
   if(!text.trim())return'';
-  return` Ты сейчас принимаешь ${text.slice(0,50)}${text.length>50?'…':''}${effect?` — ${effect.slice(0,80)}${effect.length>80?'…':''}, учти это сегодня.`:'.'}`;
+  if(!rawEffect.trim())return`Ты принимаешь ${text.trim()}.`;
+  // Если в поле эффекта указано «Название — эффект», используем часть после тире
+  const dashMatch=rawEffect.match(/[—\-]\s*(.+)/);
+  let effectPhrase=(dashMatch?dashMatch[1]:rawEffect).trim();
+  effectPhrase=effectPhrase.charAt(0).toLowerCase()+effectPhrase.slice(1);
+  if(!/[.!?]$/.test(effectPhrase))effectPhrase+='.';
+  return`Ты принимаешь ${text.trim()}. Это ${effectPhrase}`;
 }
 
 // Пункт 2: детальные рекомендации по времени тренировки — используются как
@@ -2471,11 +2477,12 @@ function getDailyAdvice(parsedDays,selectedDayIdx){
   }
 
   astro=`Луна в ${moonSign} — ${moonWater?'водный знак, благоприятствует водным процедурам и глубокому восстановлению' : 'хороший фон для дисциплины и структуры'}. Юпитер в Льве усиливает эффект любых вложений в тело сейчас.`;
-  // Пункт 2/3: учитываем текущий приём витаминов и физический ресурс в тексте восстановления
-  recovery=recovery+getVitaminsNote()+getLowResourceWarning();
-  const tactic=getTacticalTip(todayPlan);
+  // Пункт 3: физический ресурс остаётся предупреждением в основном тексте восстановления,
+  // а витамины — теперь отдельный пункт (vitaminsNote), рендерится отдельной строкой в UI.
+  recovery=recovery+getLowResourceWarning();
+  const vitaminsNote=getVitaminsNote();
 
-  return {recovery,nutrition,water,astro,tactic,todayPlan,tomorrowPlan,nearestRace,isRealToday};
+  return {recovery,nutrition,water,astro,vitaminsNote,todayPlan,tomorrowPlan,nearestRace,isRealToday};
 }
 
 /* ======= STATE FORECAST (Прогноз состояния — новый блок в разделе «Тело») ======= */
@@ -2599,11 +2606,10 @@ function DailyAdviceCard({parsedDays,selectedDayIdx}){
     <div className="advice-sub">
       <div className="advice-sub-head"><span className="as-icon">🧖</span><span className="as-title">Восстановление</span></div>
       <p>{advice.recovery}</p>
+      {advice.vitaminsNote&&<p style={{marginTop:6,paddingTop:6,borderTop:'1px solid rgba(255,255,255,.15)'}}>
+        💊 {advice.vitaminsNote}
+      </p>}
     </div>
-    {advice.tactic&&<div className="advice-sub">
-      <div className="advice-sub-head"><span className="as-icon">🎯</span><span className="as-title">Тактика</span></div>
-      <p>{advice.tactic}</p>
-    </div>}
     <div className="advice-sub">
       <div className="advice-sub-head"><span className="as-icon">🍽</span><span className="as-title">Питание</span></div>
       <p>{advice.nutrition}</p>
@@ -2782,8 +2788,15 @@ function VitaminsCard({onSaved}){
     setSaved(true);setTimeout(()=>setSaved(false),2000);
     onSaved&&onSaved(); // сообщаем Body — Прогноз состояния пересчитается сразу
   };
-  return <div className="card">
-    <div className="card-title">💊 Приём витаминов и добавок</div>
+  return <div className="card" style={{borderLeft:`3px solid ${C.gold}`,background:'linear-gradient(160deg,#FFFDF3,#fff)'}}>
+    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
+      <span style={{fontSize:20}}>💊</span>
+      <div className="card-title" style={{marginBottom:0}}>Приём витаминов и добавок</div>
+    </div>
+    {text.trim()&&<div style={{background:'rgba(255,213,79,.15)',borderRadius:10,padding:'8px 12px',marginBottom:12}}>
+      <span style={{fontSize:12,fontWeight:700,color:C.text}}>{text.trim().slice(0,60)}{text.length>60?'…':''}</span>
+      {since&&<span style={{fontSize:11,color:C.sub}}> · с {new Date(since+'T00:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'long'})}</span>}
+    </div>}
     <label className="label11">Что принимаю сейчас</label>
     <textarea className="journal-textarea" style={{minHeight:60}} value={text}
       onChange={e=>setText(e.target.value)} placeholder="D3, омега-3, магний…"/>
@@ -2924,6 +2937,17 @@ function Body(){
           <div style={{fontSize:24,fontWeight:700,color:levelColor}}>{total}%</div>
           <div style={{fontSize:10,color:C.sub}}>{level}</div>
         </div>
+      </div>
+      {/* Пункт 4: краткое пояснение под процентом — учитывает уровень и план на сегодня */}
+      <div style={{fontSize:12,color:levelColor,fontWeight:600,marginBottom:6}}>
+        {(()=>{
+          const jsDow=new Date().getDay();const todayIdx=jsDow===0?6:jsDow-1;
+          const todayEntry=parsedDays.find(d=>d.dayIdx===todayIdx);
+          if(total>=70)return todayEntry?`Хороший ресурс для «${todayEntry.label.toLowerCase()}»`:'Хороший ресурс — можно закладывать полноценную нагрузку';
+          if(total>=50)return'Средний ресурс — тренируйся по плану, но следи за сигналами тела';
+          if(total>=30)return'Низкий ресурс — сделай акцент на восстановлении сегодня';
+          return'Критически низкий ресурс — рассмотри замену тренировки на отдых';
+        })()}
       </div>
       <div style={{fontSize:12,color:C.sub,marginBottom:12}}>База {base}% + транзитные коррекции</div>
       {/* Пункт 4: ручная корректировка −5/+5, диапазон −20..+20 */}
