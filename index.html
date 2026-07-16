@@ -674,10 +674,30 @@ const CAL_MEET={
   '2026-8-6':'g','2026-8-7':'g','2026-8-8':'g','2026-8-9':'g','2026-8-10':'g',
   '2026-8-11':'g','2026-8-12':'g','2026-8-13':'g','2026-8-14':'g','2026-8-15':'g',
 };
+// Пункт 1: приближённый расчёт лунного дня (1..29/30) — та же опорная дата
+// новолуния, что и в getMoonPhase (см. AstroDigest), без внешнего API.
+function getLunarDayNumber(date){
+  const knownNewMoon=new Date(Date.UTC(2000,0,6,18,14,0));
+  const synodic=29.530588853;
+  const days=(date-knownNewMoon)/86400000;
+  const phase=((days%synodic)+synodic)%synodic;
+  return Math.floor(phase)+1;
+}
+// Благоприятные для интуиции лунные дни и подсказки к ним
+const INTUITION_DAY_NOTE={
+  2:'2-й лунный день — день интуиции и новых начинаний.',
+  7:'7-й лунный день — интуиция обостряется.',
+  11:'11-й лунный день — энергия Луны усиливается.',
+  14:'14-й лунный день — интуиция обостряется.',
+  15:'15-й лунный день — интуиция обостряется.',
+  25:'25-й лунный день — время тишины и интуиции.',
+};
+const CAL_NEUTRAL={}; // для слоя «Интуиция» нет g/y/r-логики — везде нейтральный фон
 const CAL_LAYERS={
   moon:{label:'🌀 Энергия',data:CAL_MOON,hint:'Личная энергия по лунному циклу. Пики, спады, холостая Луна.'},
   doc:{label:'📄 Документы',data:CAL_DOC,hint:'Дни Меркурия: подписание, переговоры, коммуникации.'},
   meet:{label:'❤️ Встречи',data:CAL_MEET,hint:'Дни Венеры+Марса: встречи с командой, партнёрами, переговоры.'},
+  intuition:{label:'🌙 Интуиция',data:CAL_NEUTRAL,hint:'Дни, когда интуиция обостряется. Хорошо слушать себя и доверять внутренним ощущениям.'},
 };
 const getDE=(y,m,d,layer='moon')=>(CAL_LAYERS[layer]?.data||CAL_MOON)[`${y}-${m}-${d}`]||'g';
 
@@ -1172,6 +1192,7 @@ const TRANSIT_BY_LAYER={
   moon:{g:'Луна в гармоничном знаке, энергия стабильна.',y:'Луна в сложном транзите — перепады настроения.',r:'Холостая Луна или точный квадрат.'},
   doc:{g:'Меркурий прямой, хороший день для коммуникаций.',y:'Меркурий в тени ретроградности — перепроверяй.',r:'Меркурий ретрограден: откладывай подписания.'},
   meet:{g:'Венера и Марс в гармонии — встречи пройдут конструктивно.',y:'Смешанная энергия для переговоров.',r:'Марс в оппозиции — высок риск конфликта.'},
+  intuition:{g:'Нейтральный лунный день — слушай себя, но без особого обострения.',y:'Нейтральный лунный день.',r:'Нейтральный лунный день.'},
 };
 function getJournalEntries(y,m,d){
   try{
@@ -1197,6 +1218,16 @@ function DayDetails({sel,layer}){
       <div style={{fontSize:13,fontWeight:700,color:C.text}}>⭐ День рождения</div>
       <div style={{fontSize:12,color:C.sub,marginTop:3}}>Юпитер трин Солнцу — день особой силы и признания.</div>
     </div>}
+    {/* Пункт 1: подсказка для благоприятных лунных дней в слое Интуиция */}
+    {layer==='intuition'&&(()=>{
+      const lunarDay=getLunarDayNumber(new Date(y,m,d));
+      const note=INTUITION_DAY_NOTE[lunarDay];
+      if(!note)return null;
+      return<div style={{background:'#EDE7F6',border:'1px solid #7B1FA2',borderRadius:12,padding:12,marginBottom:12}}>
+        <div style={{fontSize:13,fontWeight:700,color:C.text}}>🌙 День интуиции</div>
+        <div style={{fontSize:12,color:C.sub,marginTop:3}}>{note} Доверься внутреннему голосу.</div>
+      </div>;
+    })()}
     {events.map((k,i)=><div key={i} style={{background:C.indigoLight,borderRadius:10,padding:12,marginBottom:8}}>
       <div style={{fontSize:12,fontWeight:700,color:C.indigo}}>{k.d}</div>
       <div style={{fontSize:12,color:C.sub}}>{k.l}</div>
@@ -1334,7 +1365,7 @@ function Calendar(){
   const races=getRaces(); // промежуточные старты — подсветка оранжевым + 🏁
   return <><div className="screen"><div className="pad">
     <div className="h1">📅 Календарь</div>
-    <SegControl tabs={[{k:'moon',l:'🌀 Энергия'},{k:'doc',l:'📄 Документы'},{k:'meet',l:'❤️ Встречи'},{k:'month',l:'📅 Месяц'}]} active={layer} onChange={setLayer}/>
+    <SegControl tabs={[{k:'moon',l:'🌀 Энергия'},{k:'doc',l:'📄 Документы'},{k:'meet',l:'❤️ Встречи'},{k:'intuition',l:'🌙 Интуиция'},{k:'month',l:'📅 Месяц'}]} active={layer} onChange={setLayer}/>
     {layer!=='month'&&<p className="layer-hint">{CAL_LAYERS[layer].hint}</p>}
 
     {layer==='month'?<MonthlyForecastCard/>:<>
@@ -1352,6 +1383,9 @@ function Calendar(){
           const hasEvent=KEY_DATES.some(k=>matchKeyDate(k,yr,mo,d));
           const dateISO=`${yr}-${String(mo+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
           const raceHere=races.find(r=>r.date===dateISO);
+          // Пункт 1: благоприятный для интуиции лунный день (только для слоя Интуиция)
+          const lunarDay=layer==='intuition'?getLunarDayNumber(new Date(yr,mo,d)):null;
+          const isIntuitionDay=layer==='intuition'&&!!INTUITION_DAY_NOTE[lunarDay];
           // Единый обработчик открытия дня — используется и для onClick, и для onTouchEnd
           const openDay=(e)=>{
             e.stopPropagation();
@@ -1365,16 +1399,17 @@ function Calendar(){
             <span style={{color:tod?'#fff':raceHere?'#E65100':C.text,fontWeight:tod||hasEvent||raceHere?700:400}}>{d}</span>
             {hasBday&&<span className="star">⭐</span>}
             {raceHere&&<span className="day-cell-race">🏁</span>}
+            {isIntuitionDay&&<span className="day-cell-race" style={{fontSize:11}}>🌙</span>}
             {/* Пункт 7: акцентная полоса качества дня внизу ячейки вместо заливки фона */}
-            {!tod&&!raceHere&&<span className="day-cell-bar" style={{background:EC[en]}}/>}
+            {!tod&&!raceHere&&layer!=='intuition'&&<span className="day-cell-bar" style={{background:EC[en]}}/>}
           </div>;
         })}
       </div>)}
-      <div className="legend">
+      {layer!=='intuition'&&<div className="legend">
         {[['g','Хорошо'],['y','Осторожно'],['r','Стоп']].map(([t,l])=><div key={t} className="legend-item">
           <div className="legend-dot" style={{background:EB[t],borderColor:EC[t]}}/><span className="leg-label">{l}</span>
         </div>)}
-      </div>
+      </div>}
       <p style={{fontSize:11,color:C.sub,textAlign:'center',marginTop:8,marginBottom:16}}>Нажми на дату — подробности ниже</p>
 
       {/* Изменение (п.2): вместо модалки — встроенный блок под сеткой календаря */}
@@ -1777,6 +1812,96 @@ function StarRating({rating,onRate}){
   </div>;
 }
 
+/* ======= TAROT (локальная база 78 карт — без внешнего API) ======= */
+// 22 Старших Аркана — авторские краткие толкования (не копия конкретной колоды)
+const TAROT_MAJOR=[
+  {name:'Шут',symbol:'🃏',main:'Новое начало, прыжок в неизвестность, лёгкость и открытость к опыту.',shadow:'Безрассудство, действие без плана, игнорирование очевидных рисков.',positive:'Начни без гарантий — само движение уже ответ.'},
+  {name:'Маг',symbol:'🪄',main:'У тебя есть все нужные ресурсы прямо сейчас — дело за волей их применить.',shadow:'Манипуляция, использование дара не по назначению.',positive:'Собери разрозненные средства в один точный шаг.'},
+  {name:'Верховная Жрица',symbol:'🌙',main:'Знание приходит изнутри, не через логику — молчание тоже ответ.',shadow:'Отрицание собственной интуиции в пользу чужих мнений.',positive:'Доверься тому, что чувствуешь, но пока не можешь объяснить.'},
+  {name:'Императрица',symbol:'🌿',main:'Изобилие, забота, то, что растёт само, если дать ему условия.',shadow:'Гиперопека или, наоборот, истощение от чрезмерной отдачи.',positive:'Создавай условия для роста, не форсируя результат.'},
+  {name:'Император',symbol:'🏛️',main:'Структура, порядок, ответственность за то, что ты построил.',shadow:'Жёсткий контроль там, где нужна гибкость.',positive:'Наведи порядок в системе — это освободит энергию.'},
+  {name:'Иерофант',symbol:'📜',main:'Традиция, наставник, проверенный путь вместо изобретения велосипеда.',shadow:'Слепое следование правилам, которые уже не работают.',positive:'Учись у того, кто прошёл этот путь раньше тебя.'},
+  {name:'Влюблённые',symbol:'💞',main:'Выбор, который определяет ценности — не только про пару.',shadow:'Раздвоенность, желание угодить всем сразу.',positive:'Выбирай то, что резонирует с твоими настоящими ценностями.'},
+  {name:'Колесница',symbol:'🏇',main:'Движение вперёд через волю, а не через обстоятельства.',shadow:'Разнонаправленные силы внутри, которые тормозят прогресс.',positive:'Направь противоречивые импульсы в одну сторону.'},
+  {name:'Сила',symbol:'🦁',main:'Мягкая, но устойчивая сила — укрощение через принятие, не борьбу.',shadow:'Подавление того, что на самом деле нужно прожить.',positive:'Встреть трудность с спокойствием, а не с агрессией.'},
+  {name:'Отшельник',symbol:'🕯️',main:'Время уйти внутрь и найти ответ в тишине, а не в толпе.',shadow:'Изоляция из страха, а не из выбора.',positive:'Возьми паузу осознанно — она даст ясность.'},
+  {name:'Колесо Фортуны',symbol:'🎡',main:'Цикл меняется — то, что было внизу, идёт вверх, и наоборот.',shadow:'Пассивность, ожидание, что всё решится само.',positive:'Используй момент перемены, а не сопротивляйся ему.'},
+  {name:'Справедливость',symbol:'⚖️',main:'Причина и следствие — честная оценка того, что уже произошло.',shadow:'Самообман в попытке уйти от ответственности.',positive:'Посмотри на ситуацию без прикрас — это освобождает.'},
+  {name:'Повешенный',symbol:'🙃',main:'Взгляд с другого ракурса — то, что казалось жертвой, может быть выбором.',shadow:'Затянувшееся бездействие, застревание в неопределённости.',positive:'Смени точку зрения — решение появится оттуда, откуда не ждал.'},
+  {name:'Смерть',symbol:'🦋',main:'Завершение одного этапа, чтобы освободить место для следующего.',shadow:'Страх перемен, цепляние за то, что уже закончилось.',positive:'Отпусти то, что умерло — новое не начнётся, пока держишься за старое.'},
+  {name:'Умеренность',symbol:'🕊️',main:'Баланс через смешение, а не через крайности.',shadow:'Разбавление своей позиции до полной нейтральности.',positive:'Найди среднюю дорогу между двумя крайностями.'},
+  {name:'Дьявол',symbol:'⛓️',main:'Зависимость или паттерн, который выглядит выбором, но им не является.',shadow:'Отрицание того, что ты сам себя ограничиваешь.',positive:'Назови привязанность вслух — это первый шаг к свободе от неё.'},
+  {name:'Башня',symbol:'⚡',main:'Резкое разрушение старой структуры, которая держалась на иллюзии.',shadow:'Сопротивление неизбежному краху, что делает падение больнее.',positive:'Дай рухнуть тому, что всё равно не выдержало бы дольше.'},
+  {name:'Звезда',symbol:'⭐',main:'Надежда после кризиса — тихое, но настоящее восстановление.',shadow:'Наивный оптимизм без конкретных шагов.',positive:'Верни себе веру в лучшее, подкреплённую реальным действием.'},
+  {name:'Луна',symbol:'🌕',main:'Неопределённость, скрытое, то, что ещё не полностью ясно.',shadow:'Тревога, спроецированная на неизвестность.',positive:'Иди вперёд даже без полной ясности — путь прояснится по ходу.'},
+  {name:'Солнце',symbol:'☀️',main:'Ясность, радость, успех, который не нужно скрывать.',shadow:'Излишняя самоуверенность, слепые пятна из-за оптимизма.',positive:'Позволь себе открыто порадоваться результату.'},
+  {name:'Суд',symbol:'📯',main:'Пробуждение, честная оценка пройденного пути, зов к следующему шагу.',shadow:'Излишняя самокритика вместо трезвой оценки.',positive:'Прими прошлое как есть и сделай осознанный следующий шаг.'},
+  {name:'Мир',symbol:'🌍',main:'Завершение большого цикла, целостность, интеграция всего пройденного.',shadow:'Страх поставить точку и двигаться дальше.',positive:'Позволь себе почувствовать, что цикл действительно завершён.'},
+];
+// 56 Младших Аркана — генерируются по мастям и рангам: каждая комбинация
+// даёт содержательно уникальное толкование (14 рангов × 4 масти = 56 карт).
+const TAROT_SUITS={
+  wands:{name:'Жезлов',symbol:'🔥',theme:'действие, энергию и карьеру'},
+  cups:{name:'Кубков',symbol:'💧',theme:'чувства, отношения и внутренний мир'},
+  swords:{name:'Мечей',symbol:'⚔️',theme:'мысли, конфликты и ясность решений'},
+  pentacles:{name:'Пентаклей',symbol:'🪙',theme:'деньги, работу и материальный мир'},
+};
+const TAROT_RANKS=[
+  {name:'Туз',main:'новое начало и свежий импульс',shadow:'нерешительность в первом шаге',positive:'смело начни то, что откладывал'},
+  {name:'Двойка',main:'выбор и поиск баланса',shadow:'застревание между двумя вариантами',positive:'доверься тому варианту, что откликается внутри'},
+  {name:'Тройка',main:'рост через сотрудничество',shadow:'распыление сил на слишком многих',positive:'объединяй усилия с теми, кому доверяешь'},
+  {name:'Четвёрка',main:'стабильность и паузу для оценки',shadow:'застой из страха перемен',positive:'используй паузу, чтобы укрепить фундамент'},
+  {name:'Пятёрка',main:'конфликт или временную потерю',shadow:'зацикленность на том, что не получилось',positive:'ищи, чему тебя учит эта трудность'},
+  {name:'Шестёрка',main:'гармонию и взаимную поддержку',shadow:'ожидание, что кто-то решит всё за тебя',positive:'дай и прими помощь в равной мере'},
+  {name:'Семёрка',main:'терпение и промежуточную оценку пути',shadow:'сомнение, стоит ли продолжать',positive:'сверь план, но не бросай начатое'},
+  {name:'Восьмёрка',main:'движение вперёд с некоторыми ограничениями',shadow:'ощущение, что двигаешься не туда',positive:'сосредоточься на следующем конкретном шаге'},
+  {name:'Девятка',main:'близость к цели с остатком тревоги',shadow:'истощение перед финишем',positive:'дай себе время восстановиться, не бросая курс'},
+  {name:'Десятка',main:'завершение цикла и итог',shadow:'груз накопленного, который пора отпустить',positive:'подведи черту и позволь начаться новому'},
+  {name:'Паж',main:'ученичество и свежие новости',shadow:'наивность или незрелый подход',positive:'будь любопытен и открыт к обучению'},
+  {name:'Рыцарь',main:'движение и устремлённость к цели',shadow:'спешку и нетерпеливость',positive:'действуй решительно, но не забывай оглядываться'},
+  {name:'Королева',main:'зрелую заботу и внутреннюю уверенность',shadow:'излишний контроль из тревоги',positive:'веди из спокойствия, а не из страха'},
+  {name:'Король',main:'зрелое лидерство и ответственность',shadow:'жёсткость и нежелание слушать других',positive:'используй власть, чтобы поддерживать, а не подавлять'},
+];
+function buildMinorArcana(){
+  const cards=[];
+  Object.entries(TAROT_SUITS).forEach(([suitKey,suit])=>{
+    TAROT_RANKS.forEach(rank=>{
+      cards.push({
+        name:`${rank.name} ${suit.name}`,symbol:suit.symbol,suit:suitKey,
+        main:`Карта говорит про ${suit.theme} — сейчас в фокусе ${rank.main}.`,
+        shadow:`Теневая сторона: ${rank.shadow}.`,
+        positive:`Как использовать энергию карты: ${rank.positive}.`,
+      });
+    });
+  });
+  return cards;
+}
+const TAROT_DECK=[...TAROT_MAJOR.map(c=>({...c,suit:'major'})),...buildMinorArcana()]; // 22+56=78
+
+// Дополнительная «линза» толкования по сфере — не переписывает карту заново,
+// а честно добавляет контекстный акцент без 234 отдельных авторских текстов.
+const TAROT_SPHERE_LENS={
+  finance:{
+    wands:'В деньгах это про инициативу — не жди идеального момента для вложений.',
+    cups:'В деньгах слушай не только цифры, но и внутреннее чувство комфорта от сделки.',
+    swords:'В деньгах сейчас важна трезвая оценка рисков, а не эмоции.',
+    pentacles:'Эта карта прямо про твою тему — материальные дела сейчас в фокусе особенно сильно.',
+    major:'В деньгах это скорее про общий жизненный сценарий, чем про конкретную сделку.',
+  },
+  relationship:{
+    wands:'В отношениях это про страсть и инициативу — не бойся сделать первый шаг.',
+    cups:'Эта карта прямо про твою тему — эмоциональная составляющая сейчас на первом плане.',
+    swords:'В отношениях сейчас важнее честный разговор, чем недосказанность.',
+    pentacles:'В отношениях это про практическую сторону — быт, обязательства, надёжность.',
+    major:'В отношениях это скорее про общий этап, который вы проживаете вместе.',
+  },
+};
+function drawTarotCard(sphere){
+  const card=TAROT_DECK[Math.floor(Math.random()*TAROT_DECK.length)];
+  const lens=(sphere==='finance'||sphere==='relationship')?TAROT_SPHERE_LENS[sphere][card.suit]:null;
+  return{...card,sphere,lens};
+}
+
 function Oracle(){
   const [mode,setMode]=useState('quick');
   // Free question
@@ -1793,6 +1918,9 @@ function Oracle(){
   const [listening,setListening]=useState(false);
   // Пункт 6: переключатель Все вопросы / Аналитика внутри блока Истории
   const [histView,setHistView]=useState('list');
+  // Пункт 2: Карта дня Таро — открыт ли выбор сферы, и уже вытянутая карта
+  const [tarotOpen,setTarotOpen]=useState(false);
+  const [tarotCard,setTarotCard]=useState(null);
   const [ans,setAns]=useState(null); // {mode, text, res}
   const [err,setErr]=useState('');
   const [copied,setCopied]=useState(false);
@@ -1898,6 +2026,15 @@ ${historyText}
     const entry={id:Date.now(),mode:m,q:q2,date:new Date().toISOString().slice(0,10),resp,outcome:null,rating:0};
     const next=[entry,...hist].slice(0,50);
     setHist(next);localStorage.setItem('fenix_oracle',JSON.stringify(next));
+  };
+
+  // Пункт 2: вытягиваем случайную карту дня и сразу сохраняем в историю
+  const pickTarotSphere=(sphere)=>{
+    const card=drawTarotCard(sphere);
+    setTarotCard(card);
+    const SPHERE_LABEL={finance:'Финансы',relationship:'Отношения',general:'Общее'};
+    const respText=`${card.symbol} ${card.name}\n\nОсновное значение: ${card.main}\nТеневое значение: ${card.shadow}\nПоложительное значение: ${card.positive}${card.lens?`\n\nВ разрезе сферы «${SPHERE_LABEL[sphere]}»: ${card.lens}`:''}`;
+    saveHist('tarot',`Карта дня — ${SPHERE_LABEL[sphere]}`,respText);
   };
 
   const saveRating=n=>{
@@ -2025,7 +2162,52 @@ ${historyText}
         <button type="button" className="tpl-tile accent-green" onClick={()=>{fillMeetingPrep();setMode('quick');}}>
           <span className="tt-icon">🤝</span><span className="tt-label">К встрече</span>
         </button>
+        <button type="button" className="tpl-tile accent-indigo" onClick={()=>{setTarotOpen(o=>!o);setTarotCard(null);}}>
+          <span className="tt-icon">🔮</span><span className="tt-label">Карта дня</span>
+        </button>
       </div>
+
+      {/* Пункт 2: выбор сферы для карты дня Таро */}
+      {tarotOpen&&!tarotCard&&<div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${C.border}`}}>
+        <label className="label11">Выбери сферу</label>
+        <div className="lens-row">
+          <button className="lens-btn off" onClick={()=>pickTarotSphere('finance')}>💰 Финансы</button>
+          <button className="lens-btn off" onClick={()=>pickTarotSphere('relationship')}>❤️ Отношения</button>
+          <button className="lens-btn off" onClick={()=>pickTarotSphere('general')}>✨ Общее</button>
+        </div>
+      </div>}
+
+      {/* Пункт 2: результат — красивая карточка с тремя значениями */}
+      {tarotCard&&<div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${C.border}`}}>
+        <div style={{background:'linear-gradient(160deg,#1A237E,#283593)',borderRadius:18,padding:20,
+          textAlign:'center',boxShadow:'0 8px 24px rgba(26,35,126,.25)'}}>
+          <div style={{fontSize:40,marginBottom:8}}>{tarotCard.symbol}</div>
+          <div style={{fontSize:18,fontWeight:700,color:'#fff',marginBottom:4}}>{tarotCard.name}</div>
+          <div style={{fontSize:10,color:C.gold,textTransform:'uppercase',letterSpacing:.5,marginBottom:14}}>
+            {tarotCard.sphere==='finance'?'Финансы':tarotCard.sphere==='relationship'?'Отношения':'Общее'}
+          </div>
+          <div style={{background:'rgba(255,255,255,.08)',borderRadius:12,padding:12,marginBottom:8,textAlign:'left'}}>
+            <div style={{fontSize:10,fontWeight:700,color:C.gold,textTransform:'uppercase',marginBottom:4}}>Основное значение</div>
+            <div style={{fontSize:12.5,color:'rgba(255,255,255,.92)',lineHeight:1.5}}>{tarotCard.main}</div>
+          </div>
+          <div style={{background:'rgba(255,255,255,.08)',borderRadius:12,padding:12,marginBottom:8,textAlign:'left'}}>
+            <div style={{fontSize:10,fontWeight:700,color:C.gold,textTransform:'uppercase',marginBottom:4}}>Теневое значение</div>
+            <div style={{fontSize:12.5,color:'rgba(255,255,255,.92)',lineHeight:1.5}}>{tarotCard.shadow}</div>
+          </div>
+          <div style={{background:'rgba(255,255,255,.08)',borderRadius:12,padding:12,textAlign:'left'}}>
+            <div style={{fontSize:10,fontWeight:700,color:C.gold,textTransform:'uppercase',marginBottom:4}}>Положительное значение</div>
+            <div style={{fontSize:12.5,color:'rgba(255,255,255,.92)',lineHeight:1.5}}>{tarotCard.positive}</div>
+          </div>
+          {tarotCard.lens&&<div style={{marginTop:10,fontSize:11.5,color:'rgba(255,255,255,.7)',fontStyle:'italic',lineHeight:1.5}}>
+            ✨ {tarotCard.lens}
+          </div>}
+        </div>
+        <button onClick={()=>{setTarotCard(null);}} style={{width:'100%',marginTop:10,padding:10,borderRadius:10,
+          border:`1px solid ${C.border}`,background:'transparent',color:C.sub,fontSize:12,cursor:'pointer'}}>
+          Выбрать другую сферу
+        </button>
+        <p style={{fontSize:10.5,color:C.sub,textAlign:'center',marginTop:8}}>Карта сохранена в истории Оракула</p>
+      </div>}
     </div>}
 
     {/* ---- FREE QUESTION ---- */}
@@ -2984,6 +3166,31 @@ function getNextWeekendLabel(){
     ?`${fmt(sat)}–${fmt(sun)} ${monthName}`
     :`${fmt(sat)} ${sat.toLocaleDateString('ru-RU',{month:'long'})} – ${fmt(sun)} ${monthName}`;
 }
+// Пункт 3: девять зон Багуа — данные локальные, без внешнего API
+const BAGUA_ZONES=[
+  {key:'wealth',name:'Богатство',dir:'Юго-восток',desc:'Финансовый поток, инвестиции, ресурсы.'},
+  {key:'fame',name:'Репутация',dir:'Юг',desc:'Признание, репутация, как тебя видят другие.'},
+  {key:'love',name:'Любовь',dir:'Юго-запад',desc:'Партнёрство, брак, близкие отношения.'},
+  {key:'family',name:'Семья',dir:'Восток',desc:'Корни, семья, поддержка близких.'},
+  {key:'health',name:'Здоровье',dir:'Центр',desc:'Общее равновесие, здоровье, точка опоры дома.'},
+  {key:'creativity',name:'Творчество',dir:'Запад',desc:'Творчество, дети, новые проекты.'},
+  {key:'knowledge',name:'Знания',dir:'Северо-восток',desc:'Обучение, саморазвитие, мудрость.'},
+  {key:'career',name:'Карьера',dir:'Север',desc:'Путь, карьера, движение по жизни.'},
+  {key:'helpers',name:'Помощники и путешествия',dir:'Северо-запад',desc:'Поддержка извне, наставники, поездки.'},
+];
+// Упрощённая логика: приблизительный знак Луны (по фазе лунного цикла) → зона Багуа
+const ZODIAC_TO_BAGUA=['career','wealth','knowledge','family','fame','health','love','helpers','creativity','career','knowledge','health'];
+function getActiveBaguaZone(){
+  const knownNewMoon=new Date(Date.UTC(2000,0,6,18,14,0));
+  const synodic=29.530588853;
+  const now=new Date();
+  const days=(now-knownNewMoon)/86400000;
+  const phase=((days%synodic)+synodic)%synodic;
+  const signIdx=Math.floor((phase/synodic)*12)%12;
+  const zoneKey=ZODIAC_TO_BAGUA[signIdx];
+  return BAGUA_ZONES.find(z=>z.key===zoneKey);
+}
+
 function PowerPlace({onBack}){
   const [tab,setTab]=useState('rec');
   const [dir,setDir]=useState(null);
@@ -2992,7 +3199,7 @@ function PowerPlace({onBack}){
   const lookup=()=>setInfo({city,text:PP_CITIES[city.trim()]||'Рассчитывается по твоей астрокарте: активирует ближайшую планетарную линию.'});
   return <div className="screen"><div className="pad">
     <BackHead title="🧭 Место силы" onBack={onBack}/>
-    <Tabs tabs={[{k:'rec',l:'За ресурсом'},{k:'choose',l:'Выбрать'}]} active={tab} onChange={setTab}/>
+    <Tabs tabs={[{k:'rec',l:'За ресурсом'},{k:'choose',l:'Выбрать'},{k:'bagua',l:'🧭 Багуа'}]} active={tab} onChange={setTab}/>
     {tab==='rec'&&<>
       <div className="hero-pp">
         <div style={{fontSize:10,color:'rgba(255,255,255,.5)',marginBottom:6}}>На выходные · {getNextWeekendLabel()}</div>
@@ -3027,6 +3234,37 @@ function PowerPlace({onBack}){
         {info&&<div className="res-box"><strong>{info.city}</strong><p>{info.text}</p></div>}
       </div>
     </>}
+    {tab==='bagua'&&(()=>{
+      const active=getActiveBaguaZone();
+      const GRID_ORDER=['helpers','career','knowledge','creativity','health','family','love','fame','wealth'];
+      return<>
+        <div className="card" style={{borderLeft:`3px solid ${C.gold}`}}>
+          <div className="card-title">🧭 Активная зона сейчас</div>
+          <p className="body12" style={{marginBottom:0}}>
+            Сейчас активна зона <b>«{active.name}»</b> ({active.dir}). {active.desc} Обрати внимание на это
+            пространство в своём доме или офисе. Удели внимание порядку и символике в этой зоне.
+          </p>
+        </div>
+        <div className="card">
+          <div className="card-title">Карта Багуа</div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:14}}>
+            {GRID_ORDER.map(key=>{
+              const z=BAGUA_ZONES.find(zz=>zz.key===key);
+              const isActive=z.key===active.key;
+              return<div key={key} style={{background:isActive?C.indigo:C.indigoLight,borderRadius:12,
+                padding:'12px 6px',textAlign:'center',transition:'background .2s'}}>
+                <div style={{fontSize:11,fontWeight:700,color:isActive?'#fff':C.indigo}}>{z.name}</div>
+                <div style={{fontSize:9,color:isActive?'rgba(255,255,255,.7)':C.sub,marginTop:2}}>{z.dir}</div>
+              </div>;
+            })}
+          </div>
+          {BAGUA_ZONES.map(z=><div key={z.key} className="place-row">
+            <div className="place-icon">{z.key===active.key?'🌟':'▫️'}</div>
+            <div><div style={{fontSize:13,fontWeight:600,color:C.text}}>{z.name} · {z.dir}</div><div style={{fontSize:11,color:C.sub}}>{z.desc}</div></div>
+          </div>)}
+        </div>
+      </>;
+    })()}
   </div></div>;
 }
 
