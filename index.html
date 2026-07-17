@@ -50,7 +50,7 @@
 :root {
   --bg:#F5F7FA;--indigo:#1A237E;--indigo-mid:#3949AB;--indigo-light:#E8EAF6;
   /* Пункт 8: приглушённая палитра — золото мягче, заголовки/текст в серо-синих тонах */
-  --gold:#FFD54F;--heading:#37474F;--text:#546E7A;--sub:#78909C;
+  --gold:#FFD54F;--heading:#37474F;--text:#424242;--sub:#78909C;
   /* (п.5) насыщенные цвета статусов дня: зелёный/оранжевый/красный ярче и контрастнее */
   --red:#C62828;--green:#2E7D32;--green-light:#E8F5E9;--amber:#F57F17;
   --white:#FFFFFF;
@@ -79,19 +79,19 @@ body{width:100%;overflow-x:hidden;}
 body{
   font-family:-apple-system,'SF Pro Text','Inter',sans-serif;
   background:linear-gradient(180deg,#FAFAFA 0%,#F0F2F5 100%);background-attachment:fixed;
-  color:var(--text);font-size:14px;line-height:1.7;-webkit-font-smoothing:antialiased;
+  color:#424242;font-size:13px;line-height:1.6;-webkit-font-smoothing:antialiased;
 }
-#root{display:flex;flex-direction:column;height:100dvh;min-height:100dvh;width:100%;overflow:hidden;}
+#root{display:flex;flex-direction:column;height:100dvh;min-height:100dvh;width:100%;overflow:hidden;overflow-x:hidden;}
 .screen{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:env(safe-area-inset-bottom,0px);}
 .pad{padding:calc(6px + var(--safe-top)) 16px calc(100px + env(safe-area-inset-bottom,0px));animation:fadeInUp .38s cubic-bezier(.2,.8,.2,1) both;}
 
-/* (п.3) Карточки: радиус 18-20px, мягкая тень, лёгкий градиент, больше воздуха */
+/* (п.6) Карточки — единый стиль: белый фон, радиус 16px, мягкая тень, отступ 16px */
 .card{
-  background:var(--grad-card);border-radius:20px;padding:20px;margin-bottom:16px;
-  box-shadow:var(--shadow-card);border:1px solid rgba(0,0,0,.03);
+  background:#fff;border-radius:16px;padding:16px;margin-bottom:16px;
+  box-shadow:0 2px 8px rgba(0,0,0,.06);border:1px solid rgba(0,0,0,.03);
   animation:fadeInUp .35s ease both;
 }
-.card-title{font-size:15.5px;font-weight:700;color:var(--heading);margin-bottom:13px;letter-spacing:-.01em;}
+.card-title{font-size:14.5px;font-weight:600;color:#37474F;margin-bottom:12px;letter-spacing:-.01em;}
 
 /* Bar — (п.4) толще, с градиентной заливкой для выразительности */
 .bar-wrap{margin-bottom:15px;}
@@ -115,16 +115,16 @@ body{
 .seg-btn:active{transform:scale(.96);}
 .seg-btn.on{background:var(--white);color:var(--indigo);box-shadow:0 2px 6px rgba(26,35,126,.12);}
 
-/* (п.5) Нижняя навигация: 72px, крупнее иконки, активная вкладка — золотой акцент с подъёмом */
-.nav{display:flex;border-top:1px solid var(--border);background:var(--white);min-height:72px;
+/* (п.6) Нижняя навигация: 68px фиксированная, иконки 22px, активная вкладка — золотой акцент */
+.nav{display:flex;border-top:1px solid var(--border);background:var(--white);min-height:68px;
   padding-bottom:max(8px,var(--safe-bottom));flex-shrink:0;box-shadow:0 -2px 12px rgba(26,35,126,.05);
   position:sticky;bottom:0;z-index:40;}
-.nav-item{flex:1;padding:14px 0 10px;background:none;border:none;cursor:pointer;display:flex;
+.nav-item{flex:1;padding:12px 0 8px;background:none;border:none;cursor:pointer;display:flex;
   flex-direction:column;align-items:center;gap:4px;transition:transform .25s cubic-bezier(.2,.8,.2,1);}
 .nav-item:active{transform:scale(.9);}
-.nav-item .ei{font-size:21px;transition:opacity .25s ease,transform .25s cubic-bezier(.2,.8,.2,1);}
+.nav-item .ei{font-size:22px;transition:opacity .25s ease,transform .25s cubic-bezier(.2,.8,.2,1);}
 .nav-item .el{font-size:9.5px;transition:color .2s ease;}
-.nav-item.on{transform:translateY(-3px);}
+.nav-item.on{transform:translateY(-2px);}
 .nav-item.on .ei{opacity:1;transform:scale(1.08);}
 .nav-item.off .ei{opacity:.4;filter:grayscale(1);}
 .nav-item.on .el{color:var(--gold);font-weight:700;}
@@ -240,7 +240,7 @@ body{
 
 /* (п.6) Оракул: просторнее, с золотым свечением на кнопке */
 .oracle-input{width:100%;padding:15px;border-radius:14px;border:1.5px solid var(--border);font-size:14px;
-  color:var(--text);background:var(--bg);resize:none;font-family:inherit;min-height:78px;
+  color:var(--text);background:var(--bg);resize:none;font-family:inherit;min-height:100px;box-sizing:border-box;
   line-height:1.6;transition:border-color .2s;}
 .oracle-input:focus{border-color:var(--indigo);outline:none;}
 .oracle-input.one{min-height:unset;}
@@ -603,7 +603,7 @@ const {useState,useEffect,useRef,useCallback}=React;
 // Эти константы используются инлайново почти во всех компонентах приложения —
 // меняя их здесь, мы разом обновляем цвет и акцент везде, без правки каждого компонента.
 const C={indigo:'#1A237E',indigoMid:'#3949AB',indigoLight:'#E8EAF6',gold:'#FFD54F',
-  text:'#546E7A',sub:'#78909C',red:'#C62828',green:'#2E7D32',white:'#FFFFFF',border:'#E8EAF6'};
+  text:'#424242',sub:'#78909C',red:'#C62828',green:'#2E7D32',white:'#FFFFFF',border:'#E8EAF6'};
 // (п.5) Более насыщенные и контрастные цвета статусов дня для календаря/карточек
 const EC={g:C.green,y:'#F57F17',r:C.red};
 const EB={g:'#E8F5E9',y:'#FFFDE7',r:'#FFD9D9'};
@@ -1914,8 +1914,6 @@ function Oracle(){
   const [modes,setModes]=useState([]); // Пункт 2: выбранные углы зрения ('astro'|'psycho'|'esoteric')
   const [busy,setBusy]=useState(false);
   const [isTyping,setIsTyping]=useState(false); // Пункт 1: индикатор «Феникс печатает…»
-  // Пункт 6: голосовой ввод (Web Speech API) — только в режиме «Вопрос»
-  const [listening,setListening]=useState(false);
   // Пункт 6: переключатель Все вопросы / Аналитика внутри блока Истории
   const [histView,setHistView]=useState('list');
   // Пункт 2: Карта дня Таро — открыт ли выбор сферы, и уже вытянутая карта
@@ -1999,6 +1997,28 @@ ${transits}${planBlock}${booksContext?`\n\n${booksContext}`:''}${ratingCtx()}
 
   // Пункт 1: отправка следующего сообщения в рамках той же беседы —
   // передаём полную историю (все предыдущие вопросы и ответы) в Claude.
+  // Пункт 1: «Стратегия» и «Подготовка к встрече» больше не вставляют текст
+  // в поле — вместо этого сразу запускают диалог: Феникс задаёт уточняющие
+  // вопросы первым сообщением, а поле ввода остаётся пустым для ответа.
+  const startDialogTemplate=async(kind)=>{
+    setMode('quick');
+    setAns(null);setErr('');setCopied(false);setRating(0);setFollowUp('');
+    setBusy(true);setIsTyping(true);
+    const now=new Date();
+    const dateStr=now.toLocaleDateString('ru-RU');
+    const timeStr=now.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
+    const label=kind==='strategy'?'Стратегия':'Подготовка к встрече';
+    const starterPrompt=kind==='strategy'
+      ?`Сегодня ${dateStr}, сейчас ${timeStr}.\n\nНикита хочет обсудить стратегию по одному из направлений (Scrap/Hub/База/общее), но пока не описал детали. Начни диалог: задай 2–3 уточняющих вопроса, чтобы понять, о каком проекте и какой конкретно ситуации идёт речь. Не давай готовых решений — веди диалог так, чтобы он сам дошёл до выводов.`
+      :`Сегодня ${dateStr}, сейчас ${timeStr}.\n\nНикита готовится к важной встрече, но пока не описал детали. Начни диалог: спроси, с кем встреча, по какой теме и какая цель — 2–3 уточняющих вопроса. Как только получишь ответы, дашь вопросы для партнёра, разбор сильных/слабых сторон и сценарий диалога.`;
+    try{
+      const text=await callClaude(SYS_ORACLE,`${modesLine}\n\n${transits}${planBlock}\n\n${starterPrompt}`);
+      setConvo([{role:'user',text:`Никита начинает: ${label}`},{role:'assistant',text}]);
+      saveHist('quick',label,text);
+    }catch(e){setErr(e.message==='NO_KEY'?'Добавь ключ ИИ-ассистента (Ещё → сбросить).':'Ошибка: '+e.message.slice(0,120));}
+    finally{setBusy(false);setIsTyping(false);}
+  };
+
   const sendFollowUp=async()=>{
     const msg=followUp.trim();
     if(!msg)return;
@@ -2058,23 +2078,6 @@ ${historyText}
     if(expandedId===id)setExpandedId(null);
   };
   const toggleMode=k=>setModes(p=>p.includes(k)?p.filter(x=>x!==k):[...p,k]);
-
-  // Пункт 6: голосовой ввод — распознанный текст добавляется в поле вопроса
-  const startVoiceInput=()=>{
-    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-    if(!SR){alert('Голосовой ввод не поддерживается в этом браузере.');return;}
-    if(listening)return;
-    const rec=new SR();
-    rec.lang='ru-RU';rec.interimResults=false;rec.maxAlternatives=1;
-    rec.onresult=(e)=>{
-      const transcript=e.results[0][0].transcript;
-      setQ(prev=>prev.trim()?`${prev.trim()} ${transcript}`:transcript);
-    };
-    rec.onend=()=>setListening(false);
-    rec.onerror=()=>setListening(false);
-    setListening(true);
-    rec.start();
-  };
 
   // Два шаблона для послеобеденного спада — подставляют текущие дату и время:
   // «Быстрый совет» — коротко (еда/напиток + одно действие на 2–5 минут);
@@ -2156,10 +2159,10 @@ ${historyText}
         <button type="button" className="tpl-tile accent-red" onClick={()=>{fillSlumpAnalysis();setMode('quick');}}>
           <span className="tt-icon">🔍</span><span className="tt-label">Разбор спада</span>
         </button>
-        <button type="button" className="tpl-tile accent-indigo" onClick={()=>{fillStrategy();setMode('quick');}}>
+        <button type="button" className="tpl-tile accent-indigo" onClick={()=>startDialogTemplate('strategy')}>
           <span className="tt-icon">📈</span><span className="tt-label">Стратегия</span>
         </button>
-        <button type="button" className="tpl-tile accent-green" onClick={()=>{fillMeetingPrep();setMode('quick');}}>
+        <button type="button" className="tpl-tile accent-green" onClick={()=>startDialogTemplate('meeting')}>
           <span className="tt-icon">🤝</span><span className="tt-label">К встрече</span>
         </button>
         <button type="button" className="tpl-tile accent-indigo" onClick={()=>{setTarotOpen(o=>!o);setTarotCard(null);}}>
@@ -2213,15 +2216,7 @@ ${historyText}
     {/* ---- FREE QUESTION ---- */}
     {mode==='quick'&&<div className="card">
       <label className="label11">Вопрос или ситуация</label>
-      <div style={{position:'relative'}}>
-        <textarea className="oracle-input" value={q} onChange={e=>setQ(e.target.value)} placeholder="Введите ваш вопрос"/>
-        <button type="button" onClick={startVoiceInput} title="Голосовой ввод"
-          style={{position:'absolute',right:8,bottom:8,width:34,height:34,borderRadius:17,
-          border:'none',background:listening?C.red:C.indigo,color:'#fff',fontSize:15,cursor:'pointer',
-          boxShadow:'0 2px 8px rgba(0,0,0,.15)'}}>
-          {listening?'●':'🎙️'}
-        </button>
-      </div>
+      <textarea className="oracle-input" value={q} onChange={e=>setQ(e.target.value)} placeholder="Введите ваш вопрос"/>
       <div style={{marginTop:10}}>
         <label className="label11">Выбери угол зрения (можно несколько)</label>
         <div className="lens-row">
@@ -2575,19 +2570,43 @@ function getTacticalTip(todayPlan){
   };
   return TACTIC_BY_TYPE[todayPlan.type]||null;
 }
-// Пункт 2: короткая заметка о текущем приёме витаминов — встраивается в Восстановление
-function getVitaminsNote(){
-  const text=localStorage.getItem('body_vitamins_text')||'';
-  const rawEffect=localStorage.getItem('body_vitamins_effect')||'';
-  if(!text.trim())return'';
-  if(!rawEffect.trim())return`Ты принимаешь ${text.trim()}.`;
-  // Если в поле эффекта указано «Название — эффект», используем часть после тире
-  const dashMatch=rawEffect.match(/[—\-]\s*(.+)/);
-  let effectPhrase=(dashMatch?dashMatch[1]:rawEffect).trim();
-  effectPhrase=effectPhrase.charAt(0).toLowerCase()+effectPhrase.slice(1);
-  if(!/[.!?]$/.test(effectPhrase))effectPhrase+='.';
-  return`Ты принимаешь ${text.trim()}. Это ${effectPhrase}`;
+// Пункт 5: список витаминов вместо одного текстового поля — с автомиграцией
+// старого формата (body_vitamins_text/since/effect) при первом обращении.
+const VITAMINS_KEY='vitamins_list';
+function getVitaminsList(){
+  const raw=localStorage.getItem(VITAMINS_KEY);
+  if(raw){try{return JSON.parse(raw);}catch{return[];}}
+  // Миграция: если новый ключ ещё не создавался, но есть старые данные — конвертируем один раз
+  const oldText=localStorage.getItem('body_vitamins_text')||'';
+  if(oldText.trim()){
+    const migrated=[{
+      id:Date.now(),name:oldText.trim(),
+      startDate:localStorage.getItem('body_vitamins_since')||'',
+      effect:localStorage.getItem('body_vitamins_effect')||'',
+    }];
+    localStorage.setItem(VITAMINS_KEY,JSON.stringify(migrated));
+    return migrated;
+  }
+  return[];
 }
+function saveVitaminsList(list){localStorage.setItem(VITAMINS_KEY,JSON.stringify(list));}
+
+// Пункт 2/5: короткая заметка о текущем приёме витаминов — теперь собирается
+// из всего списка, а не одного поля; встраивается в блок «Восстановление»
+function getVitaminsNote(){
+  const list=getVitaminsList();
+  if(list.length===0)return'';
+  const parts=list.map(v=>{
+    if(!v.effect||!v.effect.trim())return v.name;
+    const dashMatch=v.effect.match(/[—\-]\s*(.+)/);
+    let effectPhrase=(dashMatch?dashMatch[1]:v.effect).trim();
+    effectPhrase=effectPhrase.charAt(0).toLowerCase()+effectPhrase.slice(1);
+    if(!/[.!?]$/.test(effectPhrase))effectPhrase+='.';
+    return`${v.name} (${effectPhrase.replace(/\.$/,'')})`;
+  });
+  return`Ты принимаешь: ${parts.join('; ')}.`;
+}
+
 
 // Пункт 2: детальные рекомендации по времени тренировки — используются как
 // дополнение к базовому совету дня, а не замена (питание/восстановление/вода).
@@ -2612,7 +2631,7 @@ function getLowResourceWarning(){
   return resourceTotal<60?` ⚠️ Твой физический ресурс сейчас ${resourceTotal}% — сегодня стоит снизить нагрузку относительно плана.`:'';
 }
 
-function getDailyAdvice(parsedDays,selectedDayIdx){
+function getDailyAdvice(parsedDays,selectedDayIdx,manualTimeOfDay){
   const jsDow=new Date().getDay();
   const todayIdx=jsDow===0?6:jsDow-1;
   // Если день выбран кликом по карточке — используем его вместо реального "сегодня"
@@ -2631,8 +2650,11 @@ function getDailyAdvice(parsedDays,selectedDayIdx){
   const moonWater=true;
 
   let recovery,nutrition,water,astro;
-  // Пункт 2: дополнение по времени тренировки (утро/вечер), если определено
-  const timeAdvice=todayPlan?getTimeOfDayAdvice(todayPlan.timeOfDay):null;
+  // Пункт 4: ручной выбор времени тренировки (если задан) имеет приоритет
+  // над автоопределением из текста плана; 'auto' или пусто — используем то,
+  // что определил parsePlan для конкретного дня.
+  const effectiveTimeOfDay=(manualTimeOfDay&&manualTimeOfDay!=='auto')?manualTimeOfDay:(todayPlan?todayPlan.timeOfDay:null);
+  const timeAdvice=getTimeOfDayAdvice(effectiveTimeOfDay);
 
   // Если старт близко (≤5 дней) — приоритет смещается на подводку и снижение риска
   const raceClose=isRealToday&&nearestRace&&nearestRace.daysLeft<=5;
@@ -2664,7 +2686,7 @@ function getDailyAdvice(parsedDays,selectedDayIdx){
   recovery=recovery+getLowResourceWarning();
   const vitaminsNote=getVitaminsNote();
 
-  return {recovery,nutrition,water,astro,vitaminsNote,todayPlan,tomorrowPlan,nearestRace,isRealToday};
+  return {recovery,nutrition,water,astro,vitaminsNote,todayPlan,tomorrowPlan,nearestRace,isRealToday,effectiveTimeOfDay};
 }
 
 /* ======= STATE FORECAST (Прогноз состояния — новый блок в разделе «Тело») ======= */
@@ -2676,8 +2698,9 @@ function getBodyForecastInputs(){
   const jsDow=new Date().getDay();
   const todayIdx=jsDow===0?6:jsDow-1;
   const todayPlan=parsedDays.find(d=>d.dayIdx===todayIdx)||null;
-  const vitaminsText=localStorage.getItem('body_vitamins_text')||'';
-  const vitaminsEffect=localStorage.getItem('body_vitamins_effect')||'';
+  const vitaminsList=getVitaminsList();
+  const vitaminsText=vitaminsList.map(v=>v.name).join(', ');
+  const vitaminsEffect=vitaminsList.filter(v=>v.effect).map(v=>`${v.name}: ${v.effect}`).join('; ');
   const {total:baseTotal}=calcBodyResource();
   const manualAdj=Number(localStorage.getItem('body_resource_adjustment')||0);
   const resourceTotal=Math.max(0,Math.min(100,baseTotal+manualAdj));
@@ -2774,17 +2797,40 @@ function StateForecastCard(){
   </div>;
 }
 
-function DailyAdviceCard({parsedDays,selectedDayIdx}){
-  const advice=getDailyAdvice(parsedDays,selectedDayIdx);
-  return <div className="advice-card">
+function DailyAdviceCard({parsedDays,selectedDayIdx,manualTimeOfDay,onTimeOfDayChange}){
+  const advice=getDailyAdvice(parsedDays,selectedDayIdx,manualTimeOfDay);
+  const isRest=!advice.todayPlan||advice.todayPlan.intensity==='none';
+  // Пункт 3: цвет карточки зависит от интенсивности тренировки на сегодня
+  const GRAD_BY_INTENSITY={
+    high:'linear-gradient(135deg,#C62828 0%,#8B1E1E 100%)',
+    medium:'linear-gradient(135deg,#F57F17 0%,#D46A00 100%)',
+    low:'linear-gradient(135deg,#F57F17 0%,#D46A00 100%)',
+    none:'linear-gradient(135deg,#2E7D32 0%,#1B5E20 100%)',
+  };
+  const cardGrad=advice.todayPlan?(GRAD_BY_INTENSITY[advice.todayPlan.intensity]||'linear-gradient(135deg,#1A237E 0%,#283593 100%)'):'linear-gradient(135deg,#1A237E 0%,#283593 100%)';
+  return <div className="advice-card" style={{background:cardGrad}}>
     <div className="advice-head">
-      <span className="ah-icon">🦅</span>
-      <span className="ah-title">Совет дня{!advice.isRealToday&&advice.todayPlan?` · ${advice.todayPlan.day}`:''}</span>
+      {/* Пункт 3: иконка типа тренировки вместо статичного орла, когда план есть */}
+      <span className="ah-icon">{advice.todayPlan?advice.todayPlan.icon:'🦅'}</span>
+      <span className="ah-title">
+        Совет дня{advice.todayPlan?` · ${advice.todayPlan.day}`:''}
+        {isRest&&<span style={{opacity:.8,fontWeight:400}}> · Сегодня отдых</span>}
+      </span>
       {advice.nearestRace&&<span style={{marginLeft:'auto',fontSize:10,fontFamily:'monospace',
         color:C.gold,background:'rgba(255,213,79,.2)',padding:'3px 8px',borderRadius:20}}>
         🏁 через {advice.nearestRace.daysLeft} дн.
       </span>}
     </div>
+
+    {/* Пункт 4: переключатель времени тренировки — влияет на питание/воду/восстановление */}
+    <div style={{display:'flex',gap:6,marginBottom:14}}>
+      {[['morning','🌅 Утро'],['evening','🌆 Вечер'],['auto','🌙 Не выбрано']].map(([k,l])=>
+        <button key={k} onClick={()=>onTimeOfDayChange(k)}
+          style={{flex:1,padding:'7px 4px',borderRadius:10,border:'none',fontSize:11,fontWeight:600,cursor:'pointer',
+          background:manualTimeOfDay===k?C.gold:'rgba(255,255,255,.12)',
+          color:manualTimeOfDay===k?'#1A1206':'rgba(255,255,255,.85)'}}>{l}</button>)}
+    </div>
+
     <div className="advice-sub">
       <div className="advice-sub-head"><span className="as-icon">🧖</span><span className="as-title">Восстановление</span></div>
       <p>{advice.recovery}</p>
@@ -2958,36 +3004,71 @@ function getDynamicRisk(){
 
 // Пункт 4: приём витаминов и добавок — свободный текст + дата начала
 function VitaminsCard({onSaved}){
-  const [text,setText]=useState(()=>localStorage.getItem('body_vitamins_text')||'');
-  const [since,setSince]=useState(()=>localStorage.getItem('body_vitamins_since')||'');
-  // Пункт 2: короткое примечание о влиянии на восстановление — Совет дня его учитывает
-  const [effect,setEffect]=useState(()=>localStorage.getItem('body_vitamins_effect')||'');
-  const [saved,setSaved]=useState(false);
-  const save=()=>{
-    localStorage.setItem('body_vitamins_text',text);
-    localStorage.setItem('body_vitamins_since',since);
-    localStorage.setItem('body_vitamins_effect',effect);
-    setSaved(true);setTimeout(()=>setSaved(false),2000);
-    onSaved&&onSaved(); // сообщаем Body — Прогноз состояния пересчитается сразу
+  const [list,setList]=useState(getVitaminsList);
+  const [adding,setAdding]=useState(false);
+  const [editingId,setEditingId]=useState(null);
+  const [form,setForm]=useState({name:'',startDate:'',effect:''});
+
+  const persist=(next)=>{
+    setList(next);saveVitaminsList(next);
+    onSaved&&onSaved(); // сообщаем Body — Прогноз состояния/Совет дня пересчитаются сразу
   };
+  const openAdd=()=>{setForm({name:'',startDate:'',effect:''});setEditingId(null);setAdding(true);};
+  const openEdit=(v)=>{setForm({name:v.name,startDate:v.startDate,effect:v.effect});setEditingId(v.id);setAdding(true);};
+  const submitForm=()=>{
+    if(!form.name.trim())return;
+    if(editingId){
+      persist(list.map(v=>v.id===editingId?{...v,name:form.name.trim(),startDate:form.startDate,effect:form.effect.trim()}:v));
+    } else {
+      persist([...list,{id:Date.now(),name:form.name.trim(),startDate:form.startDate,effect:form.effect.trim()}]);
+    }
+    setAdding(false);setEditingId(null);
+  };
+  const delVitamin=(id)=>{if(window.confirm('Удалить витамин из списка?'))persist(list.filter(v=>v.id!==id));};
+  const daysSince=(dateStr)=>{
+    if(!dateStr)return null;
+    const start=new Date(dateStr+'T00:00:00');
+    return Math.max(0,Math.floor((new Date()-start)/86400000));
+  };
+
   return <div className="card" style={{borderLeft:`3px solid ${C.gold}`,background:'linear-gradient(160deg,#FFFDF3,#fff)'}}>
     <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
       <span style={{fontSize:20}}>💊</span>
       <div className="card-title" style={{marginBottom:0}}>Приём витаминов и добавок</div>
     </div>
-    {text.trim()&&<div style={{background:'rgba(255,213,79,.15)',borderRadius:10,padding:'8px 12px',marginBottom:12}}>
-      <span style={{fontSize:12,fontWeight:700,color:C.text}}>{text.trim().slice(0,60)}{text.length>60?'…':''}</span>
-      {since&&<span style={{fontSize:11,color:C.sub}}> · с {new Date(since+'T00:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'long'})}</span>}
-    </div>}
-    <label className="label11">Что принимаю сейчас</label>
-    <textarea className="journal-textarea" style={{minHeight:60}} value={text}
-      onChange={e=>setText(e.target.value)} placeholder="D3, омега-3, магний…"/>
-    <label className="label11" style={{marginTop:8}}>Начал приём с</label>
-    <input type="date" className="race-form-input" value={since} onChange={e=>setSince(e.target.value)}/>
-    <label className="label11" style={{marginTop:8}}>Как влияет на восстановление</label>
-    <textarea className="journal-textarea" style={{minHeight:44}} value={effect}
-      onChange={e=>setEffect(e.target.value)} placeholder="напр. «Магний — помогает снять мышечное напряжение после интервалов»"/>
-    <button className="add-btn" onClick={save}>{saved?'✓ Сохранено':'Сохранить'}</button>
+
+    {list.length===0&&!adding&&<p style={{fontSize:12,color:C.sub,marginBottom:10}}>Список пока пуст.</p>}
+
+    {list.map(v=>{
+      const days=daysSince(v.startDate);
+      return<div key={v.id} style={{background:'rgba(255,213,79,.12)',borderRadius:12,padding:12,marginBottom:8}}>
+        <div style={{display:'flex',alignItems:'flex-start',gap:8}}>
+          <span style={{fontSize:16}}>💊</span>
+          <div style={{flex:1}}>
+            <div style={{fontSize:13,fontWeight:700,color:C.text}}>{v.name}</div>
+            <div style={{fontSize:11,color:C.sub,marginTop:2}}>
+              {v.startDate&&`с ${new Date(v.startDate+'T00:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'long'})}`}
+              {days!==null&&` · ${days} ${days===1?'день':days<5?'дня':'дней'}`}
+            </div>
+            {v.effect&&<div style={{fontSize:11.5,color:C.text,marginTop:5,lineHeight:1.5}}>{v.effect}</div>}
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:4}}>
+            <button className="del-btn" style={{fontSize:14}} onClick={()=>openEdit(v)}>✏️</button>
+            <button className="del-btn" onClick={()=>delVitamin(v.id)}>🗑</button>
+          </div>
+        </div>
+      </div>;
+    })}
+
+    {adding?<div className="add-form" style={{marginTop:10}}>
+      <div style={{fontSize:13,fontWeight:700,color:C.indigo,marginBottom:10}}>{editingId?'Редактировать витамин':'Новый витамин'}</div>
+      <input placeholder="Название * (напр. Магний)" value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))}/>
+      <input type="date" className="race-form-input" value={form.startDate} onChange={e=>setForm(p=>({...p,startDate:e.target.value}))}/>
+      <textarea className="journal-textarea" style={{minHeight:44,marginTop:8}} value={form.effect}
+        onChange={e=>setForm(p=>({...p,effect:e.target.value}))} placeholder="Как влияет на восстановление (опц.)"/>
+      <button className="add-save" onClick={submitForm} style={{marginTop:8}}>{editingId?'Сохранить':'Добавить'}</button>
+      <button className="add-cancel" onClick={()=>{setAdding(false);setEditingId(null);}}>Отмена</button>
+    </div>:<button className="add-new-btn" onClick={openAdd}>+ Добавить витамин</button>}
   </div>;
 }
 
@@ -3007,6 +3088,10 @@ function Body(){
   const level=total>=70?'Высокий':total>=50?'Средний':total>=30?'Низкий':'Критический';
   const levelColor=total>=70?C.green:total>=50?'#F57F17':C.red;
   const mp=getMarathonPhase();
+  // Пункт 4: ручной переключатель времени тренировки — сохраняется отдельно
+  // от плана и переопределяет автоопределение utra/vecher в совете дня.
+  const [manualTimeOfDay,setManualTimeOfDay]=useState(()=>localStorage.getItem('trainingTimeOfDay')||'auto');
+  const changeTimeOfDay=(v)=>{setManualTimeOfDay(v);localStorage.setItem('trainingTimeOfDay',v);};
   // Группа 2, пункт 3: rawPlan теперь состояние Body (не разовое чтение
   // localStorage) — это позволяет TrainingPlanCard сообщать наверх об
   // изменении плана через onPlanSaved, и PlanDayCards перерисовывается
@@ -3083,7 +3168,8 @@ function Body(){
     </div>}
 
     {/* Совет дня: Восстановление / Питание / Вода — адаптируется под выбранный день */}
-    <DailyAdviceCard parsedDays={parsedDays} selectedDayIdx={selectedDayIdx}/>
+    <DailyAdviceCard parsedDays={parsedDays} selectedDayIdx={selectedDayIdx}
+      manualTimeOfDay={manualTimeOfDay} onTimeOfDayChange={changeTimeOfDay}/>
 
     {/* Пункт 1: Прогноз состояния — под Советом дня, на основе плана, витаминов и ресурса */}
     <StateForecastCard/>
