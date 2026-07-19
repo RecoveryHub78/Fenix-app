@@ -757,7 +757,7 @@ const PP_CITIES={
   'Пушкин':'Венера-линия. Красота, восстановление, мягкая перезагрузка.',
   'Сестрорецк':'Луна-линия. Водная интуиция. Для решений через чувства, не логику.',
 };
-const TAGS_JOURNAL=['#проект','#отношения','#тело','#место','#scrap','#hub','#база','#вопрос','#книги'];
+const TAGS_JOURNAL=['#проект','#отношения','#тело','#место','#scrap','#hub','#база','#вопрос','#книги','#сон'];
 // Пункт 2: варианты угла зрения в Оракуле (заменили хештеги проектов)
 const LENS_OPTIONS=[
   {key:'astro',label:'🔮 Астрология'},
@@ -1138,7 +1138,132 @@ function WeeklyForecastCard(){
   </div>;
 }
 
-function Home({onNav,energy}){
+/* ======= DAILY PRACTICES (Рекомендации дня — новый блок на Главной) ======= */
+const DP_CACHE_KEY='dailyPractices';
+const DP_CACHE_DATE_KEY='dailyPractices_date';
+const DP_HISTORY_KEY='dailyPracticesHistory';
+
+// Пункт 2: практика дня должна быть РАЗНОЙ по типу — дыхательная/ритуал/действие/наблюдение.
+// Заглушка ротирует все четыре типа, чтобы даже офлайн-режим не повторялся день в день.
+const DAILY_PRACTICES_FALLBACK_POOL=[
+  {practice:'Дыхательная практика: 4 счёта вдох, 4 — задержка, 6 — выдох. 5 циклов перед началом дня.',
+    body:'Держи спину в тепле сегодня — сквозняки сейчас чувствительнее обычного.',
+    wardrobe:'Сегодня энергия земли — спокойные, глубокие тона и натуральные ткани: лён, хлопок.',
+    dream:'Если во сне видели воду — это про эмоции, которые давно пора выпустить наружу.'},
+  {practice:'Ритуал: оставь свет в одной из комнат сегодня вечером — символ того, что путь домой всегда открыт.',
+    body:'Уменьши соль в еде сегодня — тело попросит больше воды, чем кажется.',
+    wardrobe:'Сегодня энергия огня — носи красный или оранжевый, уместны смелые акценты.',
+    dream:'Если во сне услышали своё имя — это прямой вопрос к вам, обратите на него внимание наяву.'},
+  {practice:'Действие: отдай вещь, которую не носишь и не используешь — освободи место для нового.',
+    body:'Выпей тёплой воды утром натощак — мягкий старт для пищеварения.',
+    wardrobe:'Сегодня энергия воздуха — лёгкие, светлые ткани, ничего тяжёлого и тесного.',
+    dream:'Полёт во сне — знак, что вы готовы выйти за пределы привычных рамок.'},
+  {practice:'Наблюдение: сегодня просто замечай, что вызывает у тебя настоящую радость — не анализируй, только фиксируй.',
+    body:'Дай глазам отдых от экрана каждый час на 2–3 минуты — сегодня особенно нужно.',
+    wardrobe:'Сегодня энергия воды — синие и серебристые тона, текучие силуэты.',
+    dream:'Если во сне кто-то из прошлого — это не о них, а о незакрытой теме внутри вас.'},
+  {practice:'Дыхательная практика: положи руку на живот, дыши медленно 5 минут, считая только выдохи.',
+    body:'Сегодня хороший день для лёгкой растяжки шеи и плеч — там копится напряжение недели.',
+    wardrobe:'Сегодня энергия металла — строгие линии, серый и белый, минимализм.',
+    dream:'Падение во сне — сигнал отпустить контроль там, где вы держите его слишком крепко.'},
+];
+function getDailyPracticesFallback(){
+  return DAILY_PRACTICES_FALLBACK_POOL[new Date().getDate()%DAILY_PRACTICES_FALLBACK_POOL.length];
+}
+async function generateDailyPractices(){
+  const prompt=`НАТАЛЬНАЯ КАРТА:\n${natalSummary()}\nДАТА: ${todayISO()}\n\nСоставь утреннюю сводку из четырёх коротких рубрик (1–2 предложения каждая, простым тёплым языком, без сложных терминов):\n1. practice — практика дня: КАЖДЫЙ день должна быть РАЗНОГО типа — иногда дыхательная практика, иногда небольшой ритуал (например «оставь свет в одной из комнат»), иногда конкретное действие («отдай вещь, которую не носишь»), иногда наблюдение («замечай, что радует»). Не повторяй один и тот же тип каждый день.\n2. body — забота о теле: конкретная бытовая рекомендация по здоровью на сегодня.\n3. wardrobe — гардероб дня: цветовая рекомендация + рекомендация по тканям.\n4. dream — сны: короткая универсальная интерпретация одного образа сна (общая подсказка, не привязана к конкретному сну).\n\nВерни ТОЛЬКО JSON: {"practice":"...","body":"...","wardrobe":"...","dream":"..."}`;
+  const res=await callClaudeJSON(SYS_JSON,prompt);
+  if(!res.practice&&!res.body)throw new Error('EMPTY_PRACTICES');
+  return{practice:res.practice||'',body:res.body||'',wardrobe:res.wardrobe||'',dream:res.dream||''};
+}
+// Пункт 3: история — последние 7 дней, без дублей за один и тот же день
+function pushToPracticesHistory(dateISO,data){
+  let hist=[];
+  try{hist=JSON.parse(localStorage.getItem(DP_HISTORY_KEY)||'[]');}catch{}
+  hist=hist.filter(h=>h.date!==dateISO);
+  hist.unshift({date:dateISO,...data});
+  localStorage.setItem(DP_HISTORY_KEY,JSON.stringify(hist.slice(0,7)));
+}
+
+function DailyPracticesCard({onGoJournal}){
+  const [data,setData]=useState(()=>{
+    const cachedDate=localStorage.getItem(DP_CACHE_DATE_KEY);
+    if(cachedDate===todayISO()){
+      try{const c=JSON.parse(localStorage.getItem(DP_CACHE_KEY)||'null');if(c)return c;}catch{}
+    }
+    return getDailyPracticesFallback();
+  });
+  const [loading,setLoading]=useState(false);
+  const [showHistory,setShowHistory]=useState(false);
+
+  useEffect(()=>{
+    const cachedDate=localStorage.getItem(DP_CACHE_DATE_KEY);
+    if(cachedDate===todayISO())return; // на сегодня уже сгенерировано
+    let cancelled=false;
+    setLoading(true);
+    generateDailyPractices()
+      .then(fresh=>{
+        if(cancelled)return;
+        setData(fresh);
+        localStorage.setItem(DP_CACHE_KEY,JSON.stringify(fresh));
+        localStorage.setItem(DP_CACHE_DATE_KEY,todayISO());
+        pushToPracticesHistory(todayISO(),fresh);
+      })
+      .catch(()=>{/* нет ключа/сети — остаёмся на заглушке, тихо */})
+      .finally(()=>{if(!cancelled)setLoading(false);});
+    return()=>{cancelled=true;};
+  },[]);
+
+  const history=(()=>{try{return JSON.parse(localStorage.getItem(DP_HISTORY_KEY)||'[]');}catch{return[];}})();
+  const Row=({icon,label,text,last})=>
+    <div style={{marginBottom:last?0:10,paddingBottom:last?0:10,borderBottom:last?'none':`1px solid ${C.border}`}}>
+      <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
+        <span style={{fontSize:19}}>{icon}</span><b style={{fontSize:12.5,color:C.text}}>{label}</b>
+      </div>
+      <p style={{fontSize:13,color:C.text,lineHeight:1.6}}>{text}</p>
+    </div>;
+
+  return <>
+    <div className="card">
+      <div className="card-title" style={{display:'flex',alignItems:'center',gap:8}}>
+        📋 Рекомендации дня
+        {loading&&<span style={{fontSize:10,color:C.sub,fontWeight:400}}>обновляю…</span>}
+      </div>
+      <Row icon="🧘" label="Практика дня" text={data.practice}/>
+      <Row icon="🌡️" label="Забота о теле" text={data.body}/>
+      <Row icon="👕" label="Гардероб дня" text={data.wardrobe}/>
+      <div>
+        <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
+          <span style={{fontSize:19}}>💭</span><b style={{fontSize:12.5,color:C.text}}>Сны</b>
+        </div>
+        <p style={{fontSize:13,color:C.text,lineHeight:1.6,marginBottom:8}}>{data.dream}</p>
+        <button onClick={()=>onGoJournal('#сон')}
+          style={{fontSize:12,fontWeight:600,color:C.indigo,background:'none',border:'none',cursor:'pointer',padding:0}}>
+          Записать сон →
+        </button>
+      </div>
+    </div>
+    <button onClick={()=>setShowHistory(o=>!o)}
+      style={{fontSize:11.5,color:C.sub,background:'none',border:'none',cursor:'pointer',
+      marginTop:-8,marginBottom:14,display:'block'}}>
+      📅 История {showHistory?'▲':'▼'}
+    </button>
+    {showHistory&&<div className="card">
+      {history.length===0&&<p style={{fontSize:12,color:C.sub}}>История пока пуста.</p>}
+      {history.map((h,i)=><div key={h.date} style={{paddingBottom:i<history.length-1?10:0,
+        marginBottom:i<history.length-1?10:0,borderBottom:i<history.length-1?`1px solid ${C.border}`:'none'}}>
+        <div style={{fontSize:11,fontWeight:700,color:C.indigo,marginBottom:4}}>
+          {new Date(h.date+'T00:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'long'})}
+        </div>
+        <div style={{fontSize:12,color:C.text,lineHeight:1.5}}>🧘 {h.practice}</div>
+        <div style={{fontSize:12,color:C.text,lineHeight:1.5,marginTop:3}}>🌡️ {h.body}</div>
+        <div style={{fontSize:12,color:C.text,lineHeight:1.5,marginTop:3}}>👕 {h.wardrobe}</div>
+      </div>)}
+    </div>}
+  </>;
+}
+
+function Home({onNav,energy,onGoJournal}){
   const e=energy||ENERGY_DEF;
   const today=new Date().toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'});
   return <div className="screen">
@@ -1165,6 +1290,9 @@ function Home({onNav,energy}){
         <div className="card-title">🌿 Настрой дня</div>
         <p className="body12">{e.mood||ENERGY_DEF.mood}</p>
       </div>
+
+      {/* Новый блок: Рекомендации дня — практика/тело/гардероб/сны */}
+      <DailyPracticesCard onGoJournal={onGoJournal}/>
 
       {/* Пункт 2/3: карточки проектов и Место силы убраны с Главной —
           Проекты снова своя вкладка навигации, Место силы переехало в Ещё.
@@ -3415,14 +3543,14 @@ function StarPicker({rating,onRate}){
   </div>;
 }
 
-function Journal({onBack}){
+function Journal({onBack,initialTag}){
   const [entries,setEntries]=useState(()=>{
     try{const s=JSON.parse(localStorage.getItem('fenix_journal')||'null');return s||[
       {id:1,date:'28 июня',text:'Хороший день — ясность утром. Переговоры прошли лучше, чем ожидал.',tags:['#место','#тело'],tr:'Луна в Весах · Венера трин Юп'},
     ];}catch{return[];}
   });
   const [text,setText]=useState('');
-  const [tags,setTags]=useState([]);
+  const [tags,setTags]=useState(()=>initialTag?[initialTag]:[]);
   const [filter,setFilter]=useState('all'); // all | #scrap | #hub
   // Пункт 1: поля структурированной книги — показываются только при теге #книги
   const [bookTitle,setBookTitle]=useState('');
@@ -4052,6 +4180,9 @@ function App(){
   // Библиотека: фильтр по проекту при переходе из блока «Книги по теме»
   const [libraryFilter,setLibraryFilter]=useState('all');
   const openLibrary=project=>{setLibraryFilter(project);setScreen('library');};
+  // Журнал: тег, с которым открываем экран (используется кнопкой «Записать сон →»)
+  const [journalTag,setJournalTag]=useState(null);
+  const goJournalWithTag=tag=>{setJournalTag(tag);setScreen('journal');};
 
   const afterSplash=()=>{
     setSplashDone(true);
@@ -4077,20 +4208,20 @@ function App(){
 
   const render=()=>{
     switch(screen){
-      case'home':return<Home onNav={setScreen} energy={energy}/>;
+      case'home':return<Home onNav={setScreen} energy={energy} onGoJournal={goJournalWithTag}/>;
       case'calendar':return<Calendar key={calKey}/>;
       case'projects':return<Projects onOpenLibrary={openLibrary}/>;
       case'body':return<Body/>;
       case'oracle':return<Oracle/>;
       case'more':return<More onNav={setScreen} onKeyCleared={()=>setPhase('gate')}/>;
       case'powerplace':return<PowerPlace onBack={()=>setScreen('more')}/>;
-      case'journal':return<Journal onBack={()=>setScreen('more')}/>;
+      case'journal':return<Journal onBack={()=>setScreen('more')} initialTag={journalTag}/>;
       case'library':return<Library onBack={()=>setScreen('more')} initialFilter={libraryFilter}/>;
       case'mycode':return<MyCode onBack={()=>setScreen('more')}/>;
       case'notifications':return<Notifications onBack={()=>setScreen('more')}/>;
       case'insights':return<InsightsScreen onBack={()=>setScreen('more')}/>;
       case'digest':return<AstroDigest onBack={()=>setScreen('more')}/>;
-      default:return<Home onNav={setScreen} energy={energy}/>;
+      default:return<Home onNav={setScreen} energy={energy} onGoJournal={goJournalWithTag}/>;
     }
   };
 
