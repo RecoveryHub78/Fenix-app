@@ -244,6 +244,10 @@ body{
   line-height:1.6;transition:border-color .2s;}
 .oracle-input:focus{border-color:var(--indigo);outline:none;}
 .oracle-input.one{min-height:unset;}
+/* Авторасширяющееся поле «Вопрос»: стартует с 60px, плавно растёт до 300px,
+   дальше — вертикальный скролл вместо дальнейшего роста. */
+.oracle-input.auto-grow{min-height:60px;max-height:300px;overflow-y:auto;
+  transition:height .15s ease,border-color .2s ease;display:block;}
 .ask-btn{width:100%;padding:15px;border-radius:14px;border:none;font-size:14.5px;font-weight:700;color:#fff;
   background:var(--grad-btn);cursor:pointer;margin-top:15px;
   box-shadow:var(--shadow-btn),0 0 22px rgba(255,213,79,.25);transition:transform .15s ease;}
@@ -2034,6 +2038,18 @@ function Oracle(){
   const [mode,setMode]=useState('quick');
   // Free question
   const [q,setQ]=useState('');
+  // Авторасширение поля «Вопрос»: ref на textarea + функция пересчёта высоты.
+  // Нужна не только на onInput (когда пользователь печатает сам), но и на
+  // useEffect ниже — чтобы поле сразу подстраивалось под текст, вставленный
+  // программно кнопками-шаблонами («Быстрый совет» и т.п.), а не только вручную.
+  const qTextareaRef=useRef(null);
+  const resizeQTextarea=()=>{
+    const el=qTextareaRef.current;
+    if(!el)return;
+    el.style.height='auto';
+    el.style.height=Math.min(el.scrollHeight,300)+'px';
+  };
+  useEffect(()=>{resizeQTextarea();},[q]);
   // Election
   const [action,setAction]=useState('');
   const [from,setFrom]=useState('2026-07-01');
@@ -2344,7 +2360,10 @@ ${historyText}
     {/* ---- FREE QUESTION ---- */}
     {mode==='quick'&&<div className="card">
       <label className="label11">Вопрос или ситуация</label>
-      <textarea className="oracle-input" value={q} onChange={e=>setQ(e.target.value)} placeholder="Введите ваш вопрос"/>
+      <textarea className="oracle-input auto-grow" ref={qTextareaRef} value={q}
+        onChange={e=>setQ(e.target.value)}
+        onInput={resizeQTextarea}
+        placeholder="Введите ваш вопрос"/>
       <div style={{marginTop:10}}>
         <label className="label11">Выбери угол зрения (можно несколько)</label>
         <div className="lens-row">
