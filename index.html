@@ -371,6 +371,23 @@ body{
 .j-tags{display:flex;flex-wrap:wrap;gap:6px;}
 .j-tag{background:var(--indigo-light);color:var(--indigo);padding:4px 9px;border-radius:20px;font-size:11px;font-weight:500;}
 
+/* Пункт 5: модальное окно деталей книги — затемнённый фон, плавное появление */
+.book-modal-overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.45);
+  display:flex;align-items:flex-end;justify-content:center;animation:fadeInUp .2s ease both;}
+.book-modal-card{background:#fff;border-radius:16px 16px 0 0;padding:20px;width:100%;
+  max-width:520px;max-height:85vh;overflow-y:auto;box-sizing:border-box;
+  animation:fadeInUp .25s cubic-bezier(.2,.8,.2,1) both;
+  padding-bottom:calc(20px + env(safe-area-inset-bottom,0px));}
+.book-modal-close{position:absolute;top:14px;right:16px;background:none;border:none;
+  font-size:20px;color:var(--sub);cursor:pointer;padding:4px;}
+/* Кликабельные карточки книг (Библиотека, Книги по теме) */
+.book-card-clickable{background:#fff;border-radius:14px;padding:14px;margin-bottom:9px;
+  box-shadow:0 2px 8px rgba(0,0,0,.06);cursor:pointer;transition:transform .15s ease;}
+.book-card-clickable:active{transform:scale(.97);}
+.book-refresh-btn{background:none;border:none;font-size:16px;cursor:pointer;color:var(--sub);
+  padding:4px 6px;transition:transform .3s ease;}
+.book-refresh-btn:active{transform:rotate(180deg);}
+
 /* MyCode */
 .pills{display:flex;gap:7px;overflow-x:auto;padding-bottom:5px;margin-bottom:17px;}
 .pills::-webkit-scrollbar{display:none;}
@@ -3550,6 +3567,104 @@ function getAllJournalEntries(){
 }
 function saveAllJournalEntries(next){localStorage.setItem('fenix_journal',JSON.stringify(next));}
 
+// Пункт 1: канонический массив книг с полным набором полей. При первом
+// обращении — одноразовая миграция из старого формата (книги, хранившиеся
+// внутри fenix_journal с type:'book'), дальше используется только этот массив.
+const BOOKS_KEY='fenix_books';
+function getBooksV2(){
+  const raw=localStorage.getItem(BOOKS_KEY);
+  if(raw){try{return JSON.parse(raw);}catch{return[];}}
+  const legacy=getBooks();
+  const migrated=legacy.map(b=>({
+    id:b.id,title:b.title,author:b.author||'',description:'',fullDescription:'',
+    rating:b.rating||0,project:b.project||null,
+    dateAdded:b.date||new Date().toISOString().slice(0,10),cover:'📚',
+  }));
+  localStorage.setItem(BOOKS_KEY,JSON.stringify(migrated));
+  return migrated;
+}
+function saveBooksV2(list){localStorage.setItem(BOOKS_KEY,JSON.stringify(list));}
+function addBookToStore(data){
+  const list=getBooksV2();
+  const entry={
+    id:Date.now(),title:data.title,author:data.author||'',
+    description:(data.description||'').slice(0,200),
+    fullDescription:(data.fullDescription||'').slice(0,500),
+    rating:data.rating||0,project:data.project||null,
+    dateAdded:new Date().toISOString().slice(0,10),cover:data.cover||'📚',
+  };
+  saveBooksV2([entry,...list]);
+  return entry;
+}
+const projLabel=p=>({scrap:'Scrap',hub:'Hub',base:'База'}[p]||'Общее');
+
+// Пункт 3: модальное окно деталей книги. Работает в двух режимах:
+// — книга уже в Библиотеке (есть id в fenix_books) → показ + редактирование + удаление;
+// — превью-рекомендация (ещё не сохранена) → показ + кнопка «Добавить в Библиотеку».
+function BookDetailModal({book,onClose,onUpdated,onDeleted}){
+  const isSaved=!book.isPreview;
+  const [editing,setEditing]=useState(false);
+  const [rating,setRating]=useState(book.rating||0);
+  const [description,setDescription]=useState(book.description||'');
+
+  const saveEdit=()=>{
+    const next=getBooksV2().map(b=>b.id===book.id?{...b,rating,description}:b);
+    saveBooksV2(next);
+    setEditing(false);
+    onUpdated&&onUpdated({...book,rating,description});
+  };
+  const handleDelete=()=>{
+    if(!window.confirm('Удалить книгу?'))return;
+    saveBooksV2(getBooksV2().filter(b=>b.id!==book.id));
+    onDeleted&&onDeleted(book.id);
+    onClose();
+  };
+  const addToLibrary=()=>{
+    const saved=addBookToStore({title:book.title,author:book.author,
+      description:book.reason||book.description||'',project:book.project||null});
+    onUpdated&&onUpdated(saved,true);
+    onClose();
+  };
+
+  return <div className="book-modal-overlay" onClick={onClose}>
+    <div className="book-modal-card" onClick={e=>e.stopPropagation()} style={{position:'relative'}}>
+      <button className="book-modal-close" onClick={onClose}>✕</button>
+      <div style={{fontSize:38,marginBottom:10}}>{book.cover||'📚'}</div>
+      <div style={{fontSize:19,fontWeight:700,color:C.text,marginBottom:4}}>{book.title}</div>
+      {book.author&&<div style={{fontSize:13,color:C.sub,marginBottom:10}}>{book.author}</div>}
+
+      {isSaved&&!editing&&<div style={{marginBottom:10,fontSize:14}}>
+        {book.rating>0?'⭐'.repeat(book.rating):<span style={{fontSize:12,color:C.sub}}>Без оценки</span>}
+      </div>}
+
+      {editing?<div style={{marginBottom:12}}>
+        <label className="label11">Оценка</label>
+        <div style={{marginBottom:8}}><StarPicker rating={rating} onRate={setRating}/></div>
+        <label className="label11">Описание</label>
+        <textarea className="journal-textarea" style={{minHeight:70}} value={description}
+          onChange={e=>setDescription(e.target.value)} placeholder="Аннотация или краткое описание…"/>
+      </div>:(book.fullDescription||book.description||book.reason)&&<p style={{fontSize:13,color:C.text,lineHeight:1.6,marginBottom:12}}>
+        {book.fullDescription||book.description||book.reason}
+      </p>}
+
+      {isSaved&&<div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14,flexWrap:'wrap'}}>
+        <span className="j-tag">{projLabel(book.project)}</span>
+        {book.dateAdded&&<span style={{fontSize:11,color:C.sub}}>
+          добавлено {new Date(book.dateAdded+'T00:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'long'})}
+        </span>}
+      </div>}
+
+      <div style={{display:'flex',gap:8,marginTop:6}}>
+        {!isSaved&&<button className="add-save" style={{flex:1}} onClick={addToLibrary}>+ Добавить в Библиотеку</button>}
+        {isSaved&&!editing&&<button className="add-save" style={{flex:1}} onClick={()=>setEditing(true)}>✏️ Редактировать</button>}
+        {isSaved&&editing&&<button className="add-save" style={{flex:1}} onClick={saveEdit}>Сохранить</button>}
+        {isSaved&&<button className="add-cancel" style={{flex:1,color:C.red,borderColor:C.red}} onClick={handleDelete}>🗑 Удалить</button>}
+      </div>
+      <button className="add-cancel" style={{width:'100%',marginTop:8}} onClick={onClose}>Закрыть</button>
+    </div>
+  </div>;
+}
+
 const BOOK_PROJECT_OPTIONS=[
   {k:'scrap',l:'Scrap'},{k:'hub',l:'Hub'},{k:'base',l:'База'},{k:'',l:'Общее'},
 ];
@@ -3593,6 +3708,8 @@ function Journal({onBack,initialTag}){
       };
       const next=[entry,...entries];
       setEntries(next);localStorage.setItem('fenix_journal',JSON.stringify(next));
+      // Пункт 1: зеркалим книгу в канонический fenix_books с полным набором полей
+      addBookToStore({title:bookTitle.trim(),author:bookAuthor.trim(),rating:bookRating,project:bookProject||null});
       setBookTitle('');setBookAuthor('');setBookRating(0);setBookProject('');setTags([]);
       return;
     }
@@ -3662,7 +3779,7 @@ function Journal({onBack,initialTag}){
 // проекту. Если есть оценки — анализируем лучшую книгу, если нет — дефолты
 // по темам (металлургия/индустрия, спорт и бизнес).
 function getLibraryRecommendations(){
-  const rated=getBooks().filter(b=>b.rating>0);
+  const rated=getBooksV2().filter(b=>b.rating>0);
   if(rated.length===0){
     return{mode:'default',items:[
       {title:'Цель',author:'Элияху Голдратт',reason:'Классика по теме металлургии и производства — близко к Recovery Scrap.'},
@@ -3679,43 +3796,27 @@ function getLibraryRecommendations(){
 
 /* ======= LIBRARY (Библиотека) ======= */
 function Library({onBack,initialFilter}){
-  const [entries,setEntries]=useState(getAllJournalEntries);
+  const [books,setBooks]=useState(getBooksV2);
   const [filter,setFilter]=useState(initialFilter||'all'); // all|scrap|hub|base
   const [sortBy,setSortBy]=useState('date'); // date|rating
   const [adding,setAdding]=useState(false);
-  const [editingId,setEditingId]=useState(null);
-  const [form,setForm]=useState({title:'',author:'',rating:0,project:''});
+  const [form,setForm]=useState({title:'',author:'',rating:0,project:'',description:''});
+  const [viewingBook,setViewingBook]=useState(null); // Пункт 3: детальный просмотр
 
-  const books=entries.filter(e=>e.type==='book');
   const filtered=(filter==='all'?books:books.filter(b=>b.project===filter))
     .slice()
     .sort((a,b)=>sortBy==='rating'?(b.rating||0)-(a.rating||0):b.id-a.id);
 
-  const persist=next=>{setEntries(next);saveAllJournalEntries(next);};
-
-  const openAdd=()=>{setForm({title:'',author:'',rating:0,project:filter==='all'?'':filter});setEditingId(null);setAdding(true);};
-  const openEdit=b=>{setForm({title:b.title,author:b.author||'',rating:b.rating||0,project:b.project||''});setEditingId(b.id);setAdding(true);};
+  const openAdd=()=>{setForm({title:'',author:'',rating:0,project:filter==='all'?'':filter,description:''});setAdding(true);};
 
   const submitForm=()=>{
     if(!form.title.trim())return;
-    if(editingId){
-      const next=entries.map(e=>e.id===editingId?{...e,title:form.title.trim(),author:form.author.trim(),
-        rating:form.rating,project:form.project,
-        text:`${form.title.trim()}${form.author.trim()?` — ${form.author.trim()}`:''}${form.rating?` (${form.rating}⭐)`:''}`}:e);
-      persist(next);
-    } else {
-      const projTag=form.project?`#${form.project}`:null;
-      const entry={id:Date.now(),type:'book',date:new Date().toLocaleDateString('ru-RU',{day:'numeric',month:'long'}),
-        title:form.title.trim(),author:form.author.trim(),rating:form.rating,project:form.project,
-        text:`${form.title.trim()}${form.author.trim()?` — ${form.author.trim()}`:''}${form.rating?` (${form.rating}⭐)`:''}`,
-        tags:['#книги',...(projTag?[projTag]:[])],tr:''};
-      persist([entry,...entries]);
-    }
-    setAdding(false);setEditingId(null);
+    const saved=addBookToStore({title:form.title.trim(),author:form.author.trim(),
+      rating:form.rating,project:form.project||null,description:form.description.trim()});
+    setBooks(getBooksV2());
+    setAdding(false);
   };
-  const delBook=id=>{if(window.confirm('Удалить книгу?'))persist(entries.filter(e=>e.id!==id));};
 
-  const PROJ_LABEL={scrap:'Scrap',hub:'Hub',base:'База','':'Общее'};
   const recs=getLibraryRecommendations();
 
   return <div className="screen"><div className="pad">
@@ -3727,8 +3828,10 @@ function Library({onBack,initialFilter}){
       {recs.mode==='default'&&<p style={{fontSize:11.5,color:C.sub,marginBottom:8}}>
         Пока нет оценённых книг — вот общие рекомендации по темам.
       </p>}
-      {recs.items.map((b,i)=><div key={i} style={{marginBottom:i<recs.items.length-1?10:0,
-        paddingBottom:i<recs.items.length-1?10:0,borderBottom:i<recs.items.length-1?`1px solid ${C.border}`:'none'}}>
+      {recs.items.map((b,i)=><div key={i}
+        onClick={()=>setViewingBook({...b,isPreview:true})}
+        style={{marginBottom:i<recs.items.length-1?10:0,paddingBottom:i<recs.items.length-1?10:0,
+        borderBottom:i<recs.items.length-1?`1px solid ${C.border}`:'none',cursor:'pointer'}}>
         <div style={{fontSize:13,fontWeight:700,color:C.text}}>{b.title}</div>
         {b.author&&<div style={{fontSize:11,color:C.sub}}>{b.author}</div>}
         <div style={{fontSize:12,color:C.sub,marginTop:3,lineHeight:1.45}}>{b.reason}</div>
@@ -3752,38 +3855,42 @@ function Library({onBack,initialFilter}){
     </div>
 
     {adding&&<div className="add-form" style={{marginBottom:14}}>
-      <div style={{fontSize:13,fontWeight:700,color:C.indigo,marginBottom:10}}>{editingId?'Редактировать книгу':'Новая книга'}</div>
+      <div style={{fontSize:13,fontWeight:700,color:C.indigo,marginBottom:10}}>Новая книга</div>
       <input placeholder="Название *" value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))}/>
       <input placeholder="Автор" value={form.author} onChange={e=>setForm(p=>({...p,author:e.target.value}))}/>
+      <textarea className="journal-textarea" style={{minHeight:56,marginTop:8}} value={form.description}
+        onChange={e=>setForm(p=>({...p,description:e.target.value.slice(0,200)}))} placeholder="Краткая аннотация (до 200 символов)"/>
       <div style={{margin:'8px 0'}}><StarPicker rating={form.rating} onRate={n=>setForm(p=>({...p,rating:n}))}/></div>
       <div className="lens-row" style={{marginBottom:10}}>
         {BOOK_PROJECT_OPTIONS.map(o=><button key={o.k||'none'} type="button"
           className={`lens-btn ${form.project===o.k?'on':'off'}`}
           onClick={()=>setForm(p=>({...p,project:o.k}))}>{o.l}</button>)}
       </div>
-      <button className="add-save" onClick={submitForm}>{editingId?'Сохранить':'Добавить'}</button>
-      <button className="add-cancel" onClick={()=>{setAdding(false);setEditingId(null);}}>Отмена</button>
+      <button className="add-save" onClick={submitForm}>Добавить</button>
+      <button className="add-cancel" onClick={()=>setAdding(false)}>Отмена</button>
     </div>}
     {!adding&&<button className="add-new-btn" style={{marginBottom:14}} onClick={openAdd}>+ Добавить книгу</button>}
 
     {filtered.length===0&&<p style={{fontSize:12,color:C.sub,textAlign:'center',padding:'20px 0'}}>Книг пока нет.</p>}
-    {filtered.map(b=><div key={b.id} className="j-entry">
+    {/* Пункт 3: вся карточка кликабельна — открывает детальный просмотр */}
+    {filtered.map(b=><div key={b.id} className="book-card-clickable" onClick={()=>setViewingBook(b)}>
       <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
-        <span style={{fontSize:20}}>📚</span>
+        <span style={{fontSize:20}}>{b.cover||'📚'}</span>
         <div style={{flex:1}}>
           <div style={{fontSize:14,fontWeight:700,color:C.text}}>{b.title}</div>
           {b.author&&<div style={{fontSize:11,color:C.sub,marginTop:1}}>{b.author}</div>}
           <div style={{display:'flex',alignItems:'center',gap:8,marginTop:4}}>
             {b.rating>0&&<span style={{fontSize:12}}>{'⭐'.repeat(b.rating)}</span>}
-            <span className="j-tag">{PROJ_LABEL[b.project||'']}</span>
+            <span className="j-tag">{projLabel(b.project)}</span>
           </div>
         </div>
-        <div style={{display:'flex',flexDirection:'column',gap:4}}>
-          <button className="del-btn" style={{fontSize:15}} onClick={()=>openEdit(b)}>✏️</button>
-          <button className="del-btn" onClick={()=>delBook(b.id)}>🗑</button>
-        </div>
+        <span style={{fontSize:16,color:C.sub}}>›</span>
       </div>
     </div>)}
+
+    {viewingBook&&<BookDetailModal book={viewingBook} onClose={()=>setViewingBook(null)}
+      onUpdated={(updated,wasAdded)=>{setBooks(getBooksV2());if(wasAdded)setViewingBook(null);}}
+      onDeleted={()=>{setBooks(getBooksV2());setViewingBook(null);}}/>}
   </div></div>;
 }
 
@@ -3799,44 +3906,111 @@ const PROJECT_BOOK_DEFAULTS={
   ],
   base:[],
 };
-function getProjectBookRecs(project){
-  const books=getBooks().filter(b=>b.project===project&&b.rating>0);
-  if(books.length===0){
-    const defs=PROJECT_BOOK_DEFAULTS[project]||[];
-    return{source:'default',items:defs};
-  }
-  const avg=books.reduce((s,b)=>s+b.rating,0)/books.length;
-  const top=books.slice().sort((a,b)=>b.rating-a.rating)[0];
-  if(avg>=4){
-    return{source:'similar',items:[
-      {title:`В духе «${top.title}»`,author:top.author||'',
-        reason:`Судя по твоей оценке (${top.rating}⭐) — поищи следующую книгу того же автора или жанра.`},
-    ]};
-  }
-  return{source:'low',items:[],avg};
+const PROJECT_BOOK_THEMES={
+  scrap:'металлургия, восстановление производства, управление заводом',
+  hub:'спортивный digital-проект, доверие, работа с командой и клиентами',
+  base:'девелопмент загородной недвижимости, рекреационные проекты, экологичное строительство',
+};
+// Пункт 2: 3-4 книги из Библиотеки для проекта — с лёгкой случайностью, чтобы
+// «Обновить» реально показывал другую подборку, а не всегда одно и то же
+function pickLibraryBooksForProject(project,count=4){
+  const pool=getBooksV2().filter(b=>b.project===project);
+  if(pool.length===0)return null;
+  const sorted=pool.slice().sort((a,b)=>(b.rating||0)-(a.rating||0));
+  const topHalf=sorted.slice(0,Math.max(count,Math.ceil(sorted.length/2)));
+  return topHalf.sort(()=>Math.random()-0.5).slice(0,Math.min(count,topHalf.length));
 }
+// Пункт 2: если книг по проекту нет — запрашиваем у Claude 3-4 рекомендации по теме
+async function generateProjectBookRecs(project){
+  const prompt=`Порекомендуй 3-4 книги по теме: ${PROJECT_BOOK_THEMES[project]}. Для каждой дай название, автора (если известен) и короткое пояснение (1 предложение), почему она подходит именно сейчас.\nВерни ТОЛЬКО JSON: {"items":[{"title":"...","author":"...","reason":"..."}]}`;
+  const res=await callClaudeJSON(SYS_JSON,prompt);
+  return Array.isArray(res.items)?res.items.slice(0,4):[];
+}
+
 function ProjectBooks({project,onOpenLibrary}){
-  const {source,items,avg}=getProjectBookRecs(project);
   const ACCENT={scrap:C.indigo,hub:'#FFB300',base:C.green}[project];
+  const cacheKey=`project_books_cache_${project}`;
+  const cacheDateKey=`project_books_cache_date_${project}`;
+
+  const [items,setItems]=useState(()=>{
+    const lib=pickLibraryBooksForProject(project,4);
+    if(lib)return lib.map(b=>({...b,isPreview:false}));
+    const cachedDate=localStorage.getItem(cacheDateKey);
+    if(cachedDate===todayISO()){
+      try{const c=JSON.parse(localStorage.getItem(cacheKey)||'null');
+        if(c&&c.length)return c.map(b=>({...b,isPreview:true,project}));}catch{}
+    }
+    return(PROJECT_BOOK_DEFAULTS[project]||[]).map(b=>({...b,isPreview:true,project}));
+  });
+  const [loading,setLoading]=useState(false);
+  const [viewingBook,setViewingBook]=useState(null);
+
+  const fetchClaude=async()=>{
+    setLoading(true);
+    try{
+      const fresh=await generateProjectBookRecs(project);
+      if(fresh.length>0){
+        const withMeta=fresh.map(b=>({...b,isPreview:true,project}));
+        setItems(withMeta);
+        localStorage.setItem(cacheKey,JSON.stringify(withMeta));
+        localStorage.setItem(cacheDateKey,todayISO());
+      }
+    }catch{/* нет ключа/сети — остаёмся на том, что уже показано */}
+    finally{setLoading(false);}
+  };
+
+  useEffect(()=>{
+    // Если своих книг по проекту нет и кеш рекомендаций устарел — подтягиваем у Claude
+    if(pickLibraryBooksForProject(project,4))return;
+    if(localStorage.getItem(cacheDateKey)===todayISO())return;
+    fetchClaude();
+  },[project]);
+
+  // Пункт 2: кнопка «Обновить» — либо новая случайная подборка из своих книг,
+  // либо новый запрос к Claude, если своих книг по теме ещё нет
+  const refresh=()=>{
+    const lib=pickLibraryBooksForProject(project,4);
+    if(lib){setItems(lib.map(b=>({...b,isPreview:false})));return;}
+    fetchClaude();
+  };
+
+  const refreshFromLibrary=()=>{
+    const lib=pickLibraryBooksForProject(project,4);
+    if(lib)setItems(lib.map(b=>({...b,isPreview:false})));
+  };
+
   return <div className="card" style={{borderLeft:`3px solid ${ACCENT}`}}>
-    <div className="card-title">📚 Книги по теме</div>
-    {source==='default'&&items.length===0&&<p style={{fontSize:12,color:C.sub,lineHeight:1.5}}>
-      Пока нет ни оценённых книг, ни общих рекомендаций по этой теме — добавь книгу в Библиотеку.
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+      <div className="card-title" style={{marginBottom:0}}>📚 Книги по теме</div>
+      <button className="book-refresh-btn" onClick={refresh} title="Обновить рекомендации">
+        {loading?'…':'⟳'}
+      </button>
+    </div>
+    {items.length===0&&<p style={{fontSize:12,color:C.sub,lineHeight:1.5}}>
+      Пока нет рекомендаций — добавь книгу в Библиотеку.
     </p>}
-    {source==='low'&&<p style={{fontSize:12,color:C.sub,lineHeight:1.5}}>
-      Книги по этому проекту оценены невысоко (в среднем {avg.toFixed(1)}⭐) — рекомендации того же рода пока скрыты.
-      Попробуй поискать книги в другом ключе и добавить их в Библиотеку.
-    </p>}
-    {items.map((b,i)=><div key={i} style={{marginBottom:i<items.length-1?10:0,paddingBottom:i<items.length-1?10:0,
-      borderBottom:i<items.length-1?`1px solid ${C.border}`:'none'}}>
+    {/* Пункт 4: 3-4 книги компактными кликабельными карточками */}
+    {items.map((b,i)=><div key={b.id||i} onClick={()=>setViewingBook(b)}
+      style={{marginBottom:i<items.length-1?10:0,paddingBottom:i<items.length-1?10:0,
+      borderBottom:i<items.length-1?`1px solid ${C.border}`:'none',cursor:'pointer'}}>
       <div style={{fontSize:13,fontWeight:700,color:C.text}}>{b.title}</div>
       {b.author&&<div style={{fontSize:11,color:C.sub}}>{b.author}</div>}
-      <div style={{fontSize:12,color:C.sub,marginTop:3,lineHeight:1.45}}>{b.reason}</div>
+      {b.rating>0&&<div style={{fontSize:11,marginTop:2}}>{'⭐'.repeat(b.rating)}</div>}
+      {b.reason&&<div style={{fontSize:12,color:C.sub,marginTop:3,lineHeight:1.45}}>{b.reason}</div>}
     </div>)}
     <button onClick={onOpenLibrary} style={{width:'100%',marginTop:12,padding:10,borderRadius:10,
       border:`1px solid ${ACCENT}`,background:'transparent',color:ACCENT,fontSize:12,fontWeight:700,cursor:'pointer'}}>
       Все книги по теме →
     </button>
+
+    {/* Пункт 3: детальный просмотр — для своих книг с редактированием/удалением,
+        для рекомендаций Claude — с кнопкой «Добавить в Библиотеку» */}
+    {viewingBook&&<BookDetailModal book={viewingBook} onClose={()=>setViewingBook(null)}
+      onUpdated={(updated,wasAdded)=>{
+        if(wasAdded){setViewingBook(null);refreshFromLibrary();}
+        else refreshFromLibrary();
+      }}
+      onDeleted={()=>{setViewingBook(null);refreshFromLibrary();}}/>}
   </div>;
 }
 
