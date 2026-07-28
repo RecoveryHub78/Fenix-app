@@ -3667,13 +3667,322 @@ function Skills(){
 }
 
 /* ======= DEVELOPMENT (Развитие — Тело / Оракул / Навыки) ======= */
+/* ======= NUTRITION (Рацион — план питания и воды на день) ======= */
+const NUTRITION_PROFILE_KEY='nutrition_profile';
+const NUTRITION_HISTORY_KEY='nutrition_history';
+const ACTIVITY_LEVELS=[
+  {key:'sedentary',label:'Сидячий',factor:1.2,hint:'офис, мало движения'},
+  {key:'moderate',label:'Умеренный',factor:1.375,hint:'тренировки 1–3 раза в неделю'},
+  {key:'active',label:'Активный',factor:1.55,hint:'тренировки 3–5 раз в неделю'},
+  {key:'veryActive',label:'Очень активный',factor:1.725,hint:'тренировки 6–7 раз в неделю'},
+];
+// Расход на тренировку по типу (ккал, ориентир для мужчины ~75 кг)
+const TRAINING_BURN={interval:800,tempo:700,long:900,easy:500,strength:400,race:900,rest:0,other:450};
+
+function getNutritionProfile(){
+  try{const p=JSON.parse(localStorage.getItem(NUTRITION_PROFILE_KEY)||'null');return p;}catch{return null;}
+}
+function saveNutritionProfile(p){localStorage.setItem(NUTRITION_PROFILE_KEY,JSON.stringify(p));}
+
+// Пункт 3: BMR по формуле Миффлина-Сан-Жеора (мужской вариант) + поправка
+// на уровень активности + расход на тренировку сегодня из плана тренера.
+function calcDailyCalories(profile,todayPlan){
+  const {weight,height,age,activity}=profile;
+  const bmr=10*weight+6.25*height-5*age+5;
+  const act=ACTIVITY_LEVELS.find(a=>a.key===activity)||ACTIVITY_LEVELS[1];
+  const maintenance=Math.round(bmr*act.factor);
+  const trainingBurn=todayPlan?(TRAINING_BURN[todayPlan.type]??TRAINING_BURN.other):0;
+  return{bmr:Math.round(bmr),maintenance,trainingBurn,total:maintenance+trainingBurn,activityLabel:act.label};
+}
+// Распределение по приёмам пищи + БЖУ. Доли подобраны под день с тренировкой:
+// углеводы выше в дни нагрузки, белок держится в районе 1.8 г/кг.
+function buildMealPlan(totalKcal,profile,todayPlan){
+  const hasTraining=todayPlan&&todayPlan.type!=='rest';
+  const shares=hasTraining
+    ?[['Завтрак','07:30',0.25],['Обед','13:00',0.30],['Перекус','16:30',0.10],['После тренировки','19:30',0.15],['Ужин','21:00',0.20]]
+    :[['Завтрак','08:00',0.30],['Обед','13:30',0.35],['Перекус','16:30',0.10],['Ужин','19:30',0.25]];
+  const FOODS={
+    'Завтрак':'овсянка 100 г, банан 1 шт, яйца 2 шт, орехи 20 г',
+    'Обед':'гречка 120 г, куриная грудка 180 г, овощной салат 150 г, оливковое масло 10 г',
+    'Перекус':'творог 150 г, ягоды 100 г',
+    'После тренировки':'банан 1 шт, протеиновый коктейль или творог 150 г',
+    'Ужин':'рыба 180 г, овощи на пару 200 г, рис 80 г',
+  };
+  const protein=Math.round(profile.weight*1.8);
+  const fat=Math.round(profile.weight*1.0);
+  const carbs=Math.max(0,Math.round((totalKcal-protein*4-fat*9)/4));
+  const meals=shares.map(([name,time,share])=>({
+    name,time,kcal:Math.round(totalKcal*share),foods:FOODS[name]||'',
+    p:Math.round(protein*share),f:Math.round(fat*share),c:Math.round(carbs*share),
+  }));
+  return{meals,protein,fat,carbs};
+}
+function calcWaterNorm(profile,todayPlan){
+  const base=profile.weight*0.033;
+  const extra=todayPlan&&todayPlan.type!=='rest'?(todayPlan.intensity==='high'?0.9:0.5):0;
+  return(base+extra).toFixed(1);
+}
+// Витамины и минералы из продуктов плана — фиксированное соответствие,
+// чтобы не выдумывать значения и не требовать внешний API.
+const NUTRIENTS_FROM_FOODS=[
+  {n:'Железо',src:'гречка, красное мясо, яйца'},
+  {n:'Магний',src:'орехи, гречка, овсянка'},
+  {n:'Калий',src:'банан, овощи, рыба'},
+  {n:'Кальций',src:'творог, зелёные овощи'},
+  {n:'Омега-3',src:'рыба, орехи'},
+  {n:'Витамин B12',src:'яйца, рыба, мясо'},
+  {n:'Витамин D',src:'рыба, яичный желток'},
+  {n:'Клетчатка',src:'овощи, ягоды, овсянка'},
+];
+
+function Nutrition(){
+  const [profile,setProfile]=useState(getNutritionProfile);
+  const [editing,setEditing]=useState(!getNutritionProfile());
+  const [form,setForm]=useState(()=>getNutritionProfile()||{weight:'',height:'',age:'',activity:'active'});
+
+  const rawPlan=localStorage.getItem('trainingPlan')||localStorage.getItem('fenix_training_plan')||'';
+  const parsedDays=rawPlan?parsePlan(rawPlan):[];
+  const jsDow=new Date().getDay();
+  const todayIdx=jsDow===0?6:jsDow-1;
+  const todayPlan=parsedDays.find(d=>d.dayIdx===todayIdx)||null;
+
+  const saveProfile=()=>{
+    const w=Number(form.weight),h=Number(form.height),a=Number(form.age);
+    if(!w||!h||!a)return;
+    const p={weight:w,height:h,age:a,activity:form.activity};
+    saveNutritionProfile(p);setProfile(p);setEditing(false);
+  };
+
+  // Пункт 3: сохранение плана дня в историю (localStorage)
+  const saveToHistory=(cal,plan)=>{
+    let hist=[];
+    try{hist=JSON.parse(localStorage.getItem(NUTRITION_HISTORY_KEY)||'[]');}catch{}
+    const today=new Date().toISOString().slice(0,10);
+    hist=hist.filter(h=>h.date!==today);
+    hist.unshift({date:today,total:cal.total,protein:plan.protein,fat:plan.fat,carbs:plan.carbs,
+      training:todayPlan?todayPlan.label:'Отдых'});
+    localStorage.setItem(NUTRITION_HISTORY_KEY,JSON.stringify(hist.slice(0,30)));
+  };
+  useEffect(()=>{
+    if(!profile)return;
+    const cal=calcDailyCalories(profile,todayPlan);
+    const plan=buildMealPlan(cal.total,profile,todayPlan);
+    saveToHistory(cal,plan);
+  },[profile]);
+
+  if(!profile||editing){
+    return <div className="card">
+      <div className="card-title">⚙️ Твои параметры</div>
+      <p style={{fontSize:12.5,color:C.sub,marginBottom:12,lineHeight:1.5}}>
+        Нужны, чтобы рассчитать калорийность и состав рациона на день.
+      </p>
+      <label className="label11">Вес (кг)</label>
+      <input className="race-form-input" type="number" value={form.weight}
+        onChange={e=>setForm(p=>({...p,weight:e.target.value}))} placeholder="напр. 75"/>
+      <label className="label11" style={{marginTop:8}}>Рост (см)</label>
+      <input className="race-form-input" type="number" value={form.height}
+        onChange={e=>setForm(p=>({...p,height:e.target.value}))} placeholder="напр. 180"/>
+      <label className="label11" style={{marginTop:8}}>Возраст (лет)</label>
+      <input className="race-form-input" type="number" value={form.age}
+        onChange={e=>setForm(p=>({...p,age:e.target.value}))} placeholder="напр. 37"/>
+      <label className="label11" style={{marginTop:8}}>Уровень активности</label>
+      <div style={{display:'flex',flexDirection:'column',gap:7,marginBottom:6}}>
+        {ACTIVITY_LEVELS.map(a=>
+          <button key={a.key} onClick={()=>setForm(p=>({...p,activity:a.key}))}
+            style={{textAlign:'left',padding:'10px 13px',borderRadius:14,cursor:'pointer',
+            border:`1.5px solid ${form.activity===a.key?C.gold:C.border}`,
+            background:form.activity===a.key?'#FFFDF3':'transparent'}}>
+            <div style={{fontFamily:'Oswald,sans-serif',fontSize:13.5,fontWeight:600,
+              color:form.activity===a.key?'#E65100':C.text}}>{a.label}</div>
+            <div style={{fontSize:11.5,color:C.sub}}>{a.hint}</div>
+          </button>)}
+      </div>
+      <button className="add-btn" onClick={saveProfile}>Рассчитать рацион</button>
+      {profile&&<button className="add-cancel" onClick={()=>setEditing(false)}>Отмена</button>}
+    </div>;
+  }
+
+  const cal=calcDailyCalories(profile,todayPlan);
+  const {meals,protein,fat,carbs}=buildMealPlan(cal.total,profile,todayPlan);
+  const water=calcWaterNorm(profile,todayPlan);
+
+  return <>
+    {/* Итог по калориям */}
+    <div className="card" style={{borderLeft:`3px solid ${C.gold}`}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+        <div className="card-title" style={{marginBottom:0}}>🔥 Калории на сегодня</div>
+        <button className="book-refresh-btn" onClick={()=>{setForm(profile);setEditing(true);}} title="Изменить параметры">⚙️</button>
+      </div>
+      <div style={{fontFamily:'Oswald,sans-serif',fontSize:38,fontWeight:700,color:C.gold,lineHeight:1}}>
+        {cal.total} <span style={{fontSize:16,color:C.sub,fontWeight:500}}>ккал</span>
+      </div>
+      <div style={{fontSize:12,color:C.sub,marginTop:8,lineHeight:1.6}}>
+        Базовый обмен {cal.bmr} ккал · активность «{cal.activityLabel}» → {cal.maintenance} ккал
+        {cal.trainingBurn>0&&<> · тренировка «{todayPlan.label.toLowerCase()}» +{cal.trainingBurn} ккал</>}
+      </div>
+      <div style={{display:'flex',gap:8,marginTop:12}}>
+        {[['Белки',protein,'г',C.red],['Жиры',fat,'г','#F57F17'],['Углеводы',carbs,'г',C.green]].map(([l,v,u,col])=>
+          <div key={l} style={{flex:1,background:'#F1F3F5',borderRadius:12,padding:'10px 8px',textAlign:'center'}}>
+            <div style={{fontFamily:'Oswald,sans-serif',fontSize:17,fontWeight:600,color:col}}>{v}{u}</div>
+            <div style={{fontSize:10.5,color:C.sub}}>{l}</div>
+          </div>)}
+      </div>
+    </div>
+
+    {/* Приёмы пищи */}
+    <div className="card">
+      <div className="card-title">🍽 План приёмов пищи</div>
+      {meals.map((m,i)=><div key={m.name} style={{paddingBottom:i<meals.length-1?12:0,
+        marginBottom:i<meals.length-1?12:0,borderBottom:i<meals.length-1?`1px solid ${C.border}`:'none'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:4}}>
+          <div style={{fontFamily:'Oswald,sans-serif',fontSize:15,fontWeight:600,color:C.text}}>
+            {m.name} <span style={{fontSize:12,color:C.sub,fontWeight:400}}>{m.time}</span>
+          </div>
+          <div style={{fontFamily:'Oswald,sans-serif',fontSize:14,fontWeight:600,color:C.gold}}>{m.kcal} ккал</div>
+        </div>
+        <div style={{fontSize:13,color:C.text,lineHeight:1.55}}>{m.foods}</div>
+        <div style={{fontSize:11.5,color:C.sub,marginTop:3}}>Б {m.p} г · Ж {m.f} г · У {m.c} г</div>
+      </div>)}
+    </div>
+
+    {/* Вода */}
+    <div className="card">
+      <div className="card-title">💧 Водный режим</div>
+      <div style={{fontFamily:'Oswald,sans-serif',fontSize:26,fontWeight:600,color:C.indigo}}>{water} л</div>
+      <p style={{fontSize:13,color:C.sub,lineHeight:1.6,marginTop:6}}>
+        Норма на сегодня: 33 мл на кг веса{todayPlan&&todayPlan.type!=='rest'?' + поправка на тренировку':''}.
+        Пей равномерно в течение дня, отдельно — сразу после нагрузки.
+      </p>
+    </div>
+
+    {/* Витамины и минералы из рациона */}
+    <div className="card">
+      <div className="card-title">🌿 Что получаешь из этих продуктов</div>
+      {NUTRIENTS_FROM_FOODS.map((n,i)=><div key={n.n} style={{display:'flex',justifyContent:'space-between',
+        padding:'7px 0',borderBottom:i<NUTRIENTS_FROM_FOODS.length-1?`1px solid ${C.border}`:'none'}}>
+        <span style={{fontSize:13,fontWeight:600,color:C.text}}>{n.n}</span>
+        <span style={{fontSize:12,color:C.sub,textAlign:'right',maxWidth:'62%'}}>{n.src}</span>
+      </div>)}
+    </div>
+  </>;
+}
+
+/* ======= RECOVERY TAB (Восстановление — совет дня + отметка процедур) ======= */
+const PROCEDURES_KEY='recovery_procedures_log';
+const CUSTOM_PROCEDURES_KEY='recovery_procedures_custom';
+const DEFAULT_PROCEDURES=['Массаж','Контрастный душ','МФР','Сауна/баня','Йога/растяжка','Сон 8+','Прогулка'];
+
+function getProcedureLog(){
+  try{return JSON.parse(localStorage.getItem(PROCEDURES_KEY)||'{}');}catch{return{};}
+}
+function saveProcedureLog(log){localStorage.setItem(PROCEDURES_KEY,JSON.stringify(log));}
+function getCustomProcedures(){
+  try{return JSON.parse(localStorage.getItem(CUSTOM_PROCEDURES_KEY)||'[]');}catch{return[];}
+}
+const isoOffset=days=>{
+  const d=new Date();d.setDate(d.getDate()+days);
+  return d.toISOString().slice(0,10);
+};
+
+function ProceduresTracker(){
+  const [log,setLog]=useState(getProcedureLog);
+  const [custom,setCustom]=useState(getCustomProcedures);
+  const [adding,setAdding]=useState(false);
+  const [newProc,setNewProc]=useState('');
+
+  const today=isoOffset(0),yesterday=isoOffset(-1);
+  const all=[...DEFAULT_PROCEDURES,...custom];
+
+  const toggle=(dateKey,proc)=>{
+    const dayList=log[dateKey]||[];
+    const next={...log,[dateKey]:dayList.includes(proc)?dayList.filter(p=>p!==proc):[...dayList,proc]};
+    setLog(next);saveProcedureLog(next);
+  };
+  const addCustom=()=>{
+    const name=newProc.trim();
+    if(!name||all.includes(name))return;
+    const next=[...custom,name];
+    setCustom(next);localStorage.setItem(CUSTOM_PROCEDURES_KEY,JSON.stringify(next));
+    setNewProc('');setAdding(false);
+  };
+
+  const Grid=({dateKey})=>{
+    const done=log[dateKey]||[];
+    return <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+      {all.map(p=>{
+        const on=done.includes(p);
+        return<button key={p} onClick={()=>toggle(dateKey,p)}
+          style={{padding:'9px 13px',borderRadius:20,cursor:'pointer',
+          border:`1.5px solid ${on?C.gold:C.border}`,
+          background:on?C.gold:'transparent',color:on?'#18181A':C.sub,
+          fontFamily:'Oswald,sans-serif',fontSize:12.5,fontWeight:on?600:500,
+          transition:'background .15s ease'}}>
+          {on?'✓ ':''}{p}
+        </button>;
+      })}
+    </div>;
+  };
+
+  const todayDone=log[today]||[];
+
+  return <div className="card">
+    <div className="card-title">✅ Отметить процедуры</div>
+    <label className="label11">Сегодня</label>
+    <div style={{marginBottom:14}}><Grid dateKey={today}/></div>
+
+    <label className="label11">Вчера — можно отметить задним числом</label>
+    <div style={{marginBottom:14,opacity:.85}}><Grid dateKey={yesterday}/></div>
+
+    {adding?<div style={{marginBottom:10}}>
+      <input className="race-form-input" value={newProc} onChange={e=>setNewProc(e.target.value)}
+        placeholder="Название процедуры"/>
+      <div style={{display:'flex',gap:8}}>
+        <button className="add-save" style={{flex:1,marginTop:0}} onClick={addCustom}>Добавить</button>
+        <button className="add-cancel" style={{flex:1,marginTop:0}} onClick={()=>setAdding(false)}>Отмена</button>
+      </div>
+    </div>:<button className="add-new-btn" onClick={()=>setAdding(true)}>➕ Добавить свою</button>}
+
+    {/* Короткая статистика по сегодняшнему дню */}
+    <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`,fontSize:13,color:C.sub,lineHeight:1.6}}>
+      {todayDone.length>0
+        ?<>Сегодня отмечено: <b style={{color:C.text}}>{todayDone.join(', ').toLowerCase()}</b></>
+        :'Сегодня пока ничего не отмечено.'}
+    </div>
+  </div>;
+}
+
+// Таб «Восстановление»: сверху — существующий Совет дня (без изменений
+// в его логике), снизу — трекер выполненных процедур.
+function RecoveryTab(){
+  const rawPlan=localStorage.getItem('trainingPlan')||localStorage.getItem('fenix_training_plan')||'';
+  const parsedDays=rawPlan?parsePlan(rawPlan):[];
+  const [manualTimeOfDay,setManualTimeOfDay]=useState(()=>localStorage.getItem('trainingTimeOfDay')||'auto');
+  const changeTimeOfDay=(v)=>{setManualTimeOfDay(v);localStorage.setItem('trainingTimeOfDay',v);};
+  return <>
+    <DailyAdviceCard parsedDays={parsedDays} selectedDayIdx={null}
+      manualTimeOfDay={manualTimeOfDay} onTimeOfDayChange={changeTimeOfDay}/>
+    <ProceduresTracker/>
+  </>;
+}
+
 function Development(){
   const [tab,setTab]=useState('body');
   return <div className="screen"><div className="pad">
     <div className="h1">🧠 Развитие</div>
-    <Tabs tabs={[{k:'body',l:'💪 Тело'},{k:'oracle',l:'👁 Оракул'},{k:'skills',l:'🧠 Навыки'}]}
-      active={tab} onChange={setTab}/>
+    {/* Пять табов второго уровня. Скроллятся по горизонтали, чтобы влезали на iPhone */}
+    <div style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:8,marginBottom:12}}>
+      {[['body','💪 Тело'],['nutrition','🍽 Рацион'],['recovery','🧖 Восстановление'],
+        ['oracle','👁 Оракул'],['skills','🧠 Навыки']].map(([k,l])=>
+        <button key={k} onClick={()=>setTab(k)}
+          style={{flexShrink:0,padding:'11px 16px',borderRadius:14,cursor:'pointer',
+          border:`1px solid ${tab===k?C.gold:C.border}`,
+          background:tab===k?C.gold:C.white,color:tab===k?'#18181A':C.sub,
+          fontFamily:'Oswald,sans-serif',fontSize:13,fontWeight:600,
+          textTransform:'uppercase',letterSpacing:'.3px',whiteSpace:'nowrap'}}>{l}</button>)}
+    </div>
     {tab==='body'&&<Body embedded/>}
+    {tab==='nutrition'&&<Nutrition/>}
+    {tab==='recovery'&&<RecoveryTab/>}
     {tab==='oracle'&&<Oracle embedded/>}
     {tab==='skills'&&<Skills/>}
   </div></div>;
