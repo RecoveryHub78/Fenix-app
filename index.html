@@ -756,19 +756,26 @@ const getDE=(y,m,d,layer='moon')=>(CAL_LAYERS[layer]?.data||CAL_MOON)[`${y}-${m}
 // (moon=Луна/общая энергия, doc=Меркурий/финансы-письма, meet=Венера+Марс/встречи) —
 // это честное переиспользование уже смоделированных в приложении транзитов,
 // а не выдуманная с нуля вторая система астрологии.
+// Пункт 2А: категории задач Планировщика — точно по финальному списку.
+// key оставлены на английском (совместимость со старыми сохранёнными задачами,
+// у которых мог быть key вроде 'meeting'/'ops'/'comms'/'training' — они
+// подхватываются алиасами ниже, чтобы старые задачи не «терялись»).
 const TASK_TYPES=[
-  {key:'meeting',label:'Встреча / переговоры',icon:'🤝',layer:'meet'},
-  {key:'ops',label:'Операционка',icon:'⚙️',layer:'moon'},
+  {key:'affairs',label:'Дела',icon:'📋',layer:'moon'},
+  {key:'relations',label:'Отношения',icon:'❤️',layer:'meet'},
   {key:'finance',label:'Финансы',icon:'💰',layer:'doc'},
+  {key:'health',label:'Здоровье',icon:'💪',layer:'moon'},
   {key:'creative',label:'Творчество',icon:'🎨',layer:'moon'},
-  {key:'comms',label:'Письма / коммуникация',icon:'✉️',layer:'doc'},
-  {key:'training',label:'Тренировка',icon:'🏃',layer:'moon'},
   {key:'other',label:'Другое',icon:'📌',layer:'moon'},
 ];
+// Алиасы старых ключей (из версии до этого обновления) — чтобы уже
+// сохранённые в localStorage задачи не остались без категории.
+const TASK_TYPE_ALIASES={meeting:'relations',ops:'affairs',comms:'affairs',training:'health'};
+function resolveTaskType(key){return TASK_TYPES.find(t=>t.key===key)||TASK_TYPES.find(t=>t.key===TASK_TYPE_ALIASES[key])||TASK_TYPES[TASK_TYPES.length-1];}
 const QUALITY_DOT={g:'🟢',y:'🟡',r:'🔴'};
 const QUALITY_LABEL={g:'Благоприятно',y:'Нейтрально',r:'Неблагоприятно'};
 function getWeekFavorability(taskTypeKey){
-  const type=TASK_TYPES.find(t=>t.key===taskTypeKey)||TASK_TYPES[TASK_TYPES.length-1];
+  const type=resolveTaskType(taskTypeKey);
   const now=new Date();
   const days=[];
   for(let i=0;i<7;i++){
@@ -785,6 +792,17 @@ function bestDayForTask(taskTypeKey){
 const PLANNER_TASKS_KEY='weekly_planner_tasks';
 function getPlannerTasks(){try{return JSON.parse(localStorage.getItem(PLANNER_TASKS_KEY)||'[]');}catch{return[];}}
 function savePlannerTasks(list){localStorage.setItem(PLANNER_TASKS_KEY,JSON.stringify(list));}
+// Пункт 3: задачи Планировщика на конкретную календарную дату — сопоставляем
+// по выбранному в задаче дню(-ям) недели с реальным днём недели этой даты.
+function getPlannerTasksForDate(y,moZeroBased,d){
+  const date=new Date(y,moZeroBased,d);
+  const jsDow=date.getDay();
+  const wd=WD[(jsDow+6)%7];
+  return getPlannerTasks().filter(t=>Array.isArray(t.days)&&t.days.includes(wd)).map(t=>{
+    const type=resolveTaskType(t.type);
+    return{...t,type,quality:getDE(y,moZeroBased+1,d,type.layer)};
+  });
+}
 
 const KEY_DATES=[
   {d:'22 июля',l:'День рождения · Юпитер трин Солнцу',t:'g'},
@@ -1348,7 +1366,11 @@ function DailyPracticesCard({onGoJournal}){
   </>;
 }
 
-/* ======= TODAY BLOCK (Пункт 1: «Сегодня» на Главной) ======= */
+/* ======= TODAY BLOCK (Пункт 1В: «Сегодня» на Главной — виджет Планировщика) ======= */
+// Функции ниже (generateTodayBlock/getTodayBlockFallback) больше не используются
+// в самом блоке «Сегодня» (он теперь = задачи Планировщика на сегодня, без
+// приоритета/фокуса/счётчиков — по новому ТЗ), но оставлены как есть — вдруг
+// пригодятся, и чтобы не рисковать лишним рефакторингом смежного кода.
 const TODAY_BLOCK_CACHE_KEY='daily_today_block';
 const TODAY_BLOCK_DATE_KEY='daily_today_block_date';
 async function generateTodayBlock(){
@@ -1361,83 +1383,71 @@ function getTodayBlockFallback(){
   return{priority:'Заверши одну задачу, которую откладывал вчера — это освободит голову для остального.',
     focus:'Сегодня хороший день навести порядок в текущих делах, а не начинать что-то новое.'};
 }
-function TodayCard(){
-  const [data,setData]=useState(()=>{
-    if(localStorage.getItem(TODAY_BLOCK_DATE_KEY)===todayISO()){
-      try{const c=JSON.parse(localStorage.getItem(TODAY_BLOCK_CACHE_KEY)||'null');if(c)return c;}catch{}
-    }
-    return null;
-  });
-  const [loading,setLoading]=useState(false);
-  useEffect(()=>{
-    if(localStorage.getItem(TODAY_BLOCK_DATE_KEY)===todayISO())return;
-    let cancelled=false;
-    setLoading(true);
-    generateTodayBlock()
-      .then(fresh=>{
-        if(cancelled)return;
-        setData(fresh);
-        localStorage.setItem(TODAY_BLOCK_CACHE_KEY,JSON.stringify(fresh));
-        localStorage.setItem(TODAY_BLOCK_DATE_KEY,todayISO());
-      })
-      .catch(()=>{if(!cancelled)setData(getTodayBlockFallback());})
-      .finally(()=>{if(!cancelled)setLoading(false);});
-    return()=>{cancelled=true;};
-  },[]);
-
-  // Пункт 1В: счётчики дней — переиспользуем уже существующие в приложении даты
-  const counters=[
-    {label:'До марафона',days:DAYS_TO_MARATHON,icon:'🏃'},
-    {label:'Дедлайн Scrap',days:DAYS_LEFT,icon:'⚙️'},
-    {label:'Запуск Hub',days:HUB_DAYS_LEFT,icon:'🚀'},
-  ];
-
+// Пункт 1В: «Сегодня» = задачи Планировщика на сегодняшний день недели,
+// с цветовой индикацией благоприятности. Клик по задаче (и по всей карточке)
+// открывает полный раздел «Планировщик» для редактирования.
+function TodayCard({onOpen}){
+  const now=new Date();
+  const todayTasks=getPlannerTasksForDate(now.getFullYear(),now.getMonth(),now.getDate());
   return <div className="card">
     <div className="card-title">📋 Сегодня</div>
-    {!data?<p style={{fontSize:13,color:C.sub}}>Загружаю твой день…</p>:<>
-      <div style={{marginBottom:12,paddingBottom:12,borderBottom:`1px solid ${C.border}`}}>
-        <div style={{fontSize:11,fontWeight:700,color:C.gold,textTransform:'uppercase',letterSpacing:.3,marginBottom:4}}>🎯 Приоритет дня</div>
-        <p style={{fontSize:14,color:C.text,lineHeight:1.6}}>{data.priority}</p>
-      </div>
-      <div style={{marginBottom:14,paddingBottom:14,borderBottom:`1px solid ${C.border}`}}>
-        <div style={{fontSize:11,fontWeight:700,color:C.gold,textTransform:'uppercase',letterSpacing:.3,marginBottom:4}}>🔍 Фокус дня</div>
-        <p style={{fontSize:14,color:C.text,lineHeight:1.6}}>{data.focus}</p>
-      </div>
-    </>}
-    <div style={{fontSize:11,fontWeight:700,color:C.sub,textTransform:'uppercase',letterSpacing:.3,marginBottom:8}}>Счётчики</div>
-    <div style={{display:'flex',gap:8,overflowX:'auto'}}>
-      {counters.map(c=><div key={c.label} style={{flexShrink:0,background:'#F1F3F5',borderRadius:12,
-        padding:'10px 14px',textAlign:'center',minWidth:90}}>
-        <div style={{fontSize:17}}>{c.icon}</div>
-        <div style={{fontFamily:'Oswald,sans-serif',fontSize:20,fontWeight:700,color:C.gold}}>{c.days}</div>
-        <div style={{fontSize:10,color:C.sub}}>{c.label}</div>
+    {todayTasks.length===0
+      ?<p style={{fontSize:13,color:C.sub,lineHeight:1.6}}>
+        Сегодня в Планировщике пусто. Загляни туда, чтобы добавить задачу — Феникс подскажет благоприятный день.
+      </p>
+      :todayTasks.map(t=><div key={t.id} onClick={onOpen}
+        style={{display:'flex',alignItems:'center',gap:10,padding:'9px 0',borderBottom:`1px solid ${C.border}`,cursor:'pointer'}}>
+        <span style={{fontSize:17}}>{t.type.icon}</span>
+        <div style={{flex:1}}>
+          <div style={{fontSize:13.5,fontWeight:600,color:C.text}}>{t.title}</div>
+          <div style={{fontSize:10.5,color:C.sub}}>{t.type.label} · {QUALITY_LABEL[t.quality]}</div>
+        </div>
+        <span style={{fontSize:15}}>{QUALITY_DOT[t.quality]}</span>
       </div>)}
-    </div>
-    {loading&&<div style={{fontSize:10,color:C.sub,marginTop:8}}>обновляю…</div>}
+    <button onClick={onOpen} style={{width:'100%',marginTop:12,padding:10,borderRadius:10,
+      border:`1px solid ${C.gold}`,background:'transparent',color:C.gold,
+      fontFamily:'Oswald,sans-serif',fontSize:12,fontWeight:600,textTransform:'uppercase',
+      letterSpacing:.3,cursor:'pointer'}}>
+      Открыть Планировщик →
+    </button>
   </div>;
 }
 
-/* ======= INSIGHT OF THE DAY (Пункт 2: «Инсайт дня» на Главной) ======= */
+/* ======= INSIGHT OF THE DAY (Пункт 1Г: категоризированные астро-рекомендации на Главной) ======= */
 const INSIGHT_CACHE_KEY='daily_insight';
 const INSIGHT_DATE_KEY='daily_insight_date';
 const INSIGHT_COUNT_KEY='daily_insight_refresh_count';
-const INSIGHT_FALLBACK_POOL=[
-  'Юпитер в Льве в этом году работает на всех, кто перестаёт прятать свой вклад — не молчи о том, что сделал.',
-  'Маленькая привычка, выполненная 20 дней подряд, меняет больше, чем один рывок раз в месяц.',
-  'Луна меняет знак примерно раз в 2.5 дня — если настроение скачет без причины, возможно, дело не в тебе, а в цикле.',
-  'Сегодняшнее раздражение часто — вчерашняя невысказанная просьба.',
-  'Марс в Рыбах учит: иногда самый сильный ход — не форсировать, а дать процессу дозреть.',
+const INSIGHT_CATEGORIES=[
+  {key:'affairs',label:'Дела',icon:'📋'},
+  {key:'relations',label:'Отношения',icon:'❤️'},
+  {key:'finance',label:'Финансы',icon:'💰'},
+  {key:'health',label:'Здоровье',icon:'💪'},
+  {key:'general',label:'Общее',icon:'✨'},
 ];
-function getInsightFallback(){return INSIGHT_FALLBACK_POOL[new Date().getDate()%INSIGHT_FALLBACK_POOL.length];}
+const INSIGHT_MARK_COLOR={'✅':C.green,'❌':C.red,'⏰':'#F57F17'};
+// Офлайн-заглушка в том же категорийном формате — на случай отсутствия ключа/сети
+function getInsightFallback(){
+  return{
+    affairs:{mark:'✅',text:'Хороший день закрыть одну зависшую задачу — не начинай сразу три новых.'},
+    relations:{mark:'⏰',text:'Для серьёзных разговоров лучше дождаться вечера, чем действовать с утра.'},
+    finance:{mark:'❌',text:'Не подписывай сегодня ничего, что не перечитал дважды.'},
+    health:{mark:'✅',text:'Тело сегодня отзывчиво к нагрузке — но не забывай про воду.'},
+    general:{mark:'✅',text:'День больше подходит для завершения начатого, чем для новых стартов.'},
+  };
+}
 async function generateInsight(){
-  const prompt=`НАТАЛЬНАЯ КАРТА:\n${natalSummary()}\nДАТА: ${todayISO()}\n\nДай ОДНУ короткую полезную мысль дня — практический совет, астрологический факт или идею для размышления. 1-2 предложения, живым языком, без длинных вступлений и без астрологического сленга.\nВерни ТОЛЬКО JSON: {"insight":"..."}`;
+  const dow=new Date().toLocaleDateString('ru-RU',{weekday:'long'});
+  const prompt=`НАТАЛЬНАЯ КАРТА:\n${natalSummary()}\nДЕНЬ НЕДЕЛИ: ${dow}\nДАТА: ${todayISO()}\n\nСоставь персонализированный прогноз на сегодня по пяти категориям: affairs (дела), relations (отношения), finance (финансы), health (здоровье), general (общее). Для КАЖДОЙ категории дай ровно одну рекомендацию (1 предложение, простым языком, без астрологического сленга) с одной из трёх пометок:\n"✅" — что сегодня благоприятно делать;\n"❌" — чего сегодня лучше не делать;\n"⏰" — когда именно лучше/хуже действовать (временное ограничение).\nВыбери ту пометку, которая для этой категории сегодня важнее всего.\nВерни ТОЛЬКО JSON: {"affairs":{"mark":"✅|❌|⏰","text":"..."},"relations":{"mark":"...","text":"..."},"finance":{"mark":"...","text":"..."},"health":{"mark":"...","text":"..."},"general":{"mark":"...","text":"..."}}`;
   const res=await callClaudeJSON(SYS_JSON,prompt);
-  return res.insight||'';
+  const fb=getInsightFallback();
+  const merged={};
+  INSIGHT_CATEGORIES.forEach(c=>{merged[c.key]=(res[c.key]&&res[c.key].text)?res[c.key]:fb[c.key];});
+  return merged;
 }
 function InsightCard(){
-  const [insight,setInsight]=useState(()=>{
+  const [data,setData]=useState(()=>{
     if(localStorage.getItem(INSIGHT_DATE_KEY)===todayISO()){
-      const c=localStorage.getItem(INSIGHT_CACHE_KEY);if(c)return c;
+      try{const c=JSON.parse(localStorage.getItem(INSIGHT_CACHE_KEY)||'null');if(c)return c;}catch{}
     }
     return null;
   });
@@ -1448,10 +1458,9 @@ function InsightCard(){
   const fetchInsight=async(isManual)=>{
     setLoading(true);
     try{
-      const text=await generateInsight();
-      const final=text||getInsightFallback();
-      setInsight(final);
-      localStorage.setItem(INSIGHT_CACHE_KEY,final);
+      const fresh=await generateInsight();
+      setData(fresh);
+      localStorage.setItem(INSIGHT_CACHE_KEY,JSON.stringify(fresh));
       localStorage.setItem(INSIGHT_DATE_KEY,todayISO());
       if(isManual){
         const next=refreshCount+1;
@@ -1459,7 +1468,7 @@ function InsightCard(){
         localStorage.setItem(INSIGHT_COUNT_KEY,String(next));
       }
     }catch{
-      setInsight(getInsightFallback());
+      setData(getInsightFallback());
     }finally{setLoading(false);}
   };
   useEffect(()=>{
@@ -1469,11 +1478,25 @@ function InsightCard(){
 
   return <div className="card" style={{borderLeft:`3px solid ${C.gold}`}}>
     <div className="card-title">💡 Инсайт дня</div>
-    <p style={{fontSize:14,color:C.text,lineHeight:1.65}}>{loading?'Думаю…':(insight||'Загружаю инсайт…')}</p>
+    {!data?<p style={{fontSize:13,color:C.sub}}>{loading?'Думаю…':'Загружаю инсайт…'}</p>:
+      INSIGHT_CATEGORIES.map((c,i)=>{
+        const item=data[c.key];
+        if(!item)return null;
+        return<div key={c.key} style={{display:'flex',gap:9,padding:'8px 0',
+          borderBottom:i<INSIGHT_CATEGORIES.length-1?`1px solid ${C.border}`:'none'}}>
+          <span style={{fontSize:16}}>{c.icon}</span>
+          <div style={{flex:1}}>
+            <div style={{fontSize:10.5,fontWeight:700,color:C.sub,textTransform:'uppercase',letterSpacing:.3}}>{c.label}</div>
+            <div style={{fontSize:13.5,color:C.text,lineHeight:1.55,marginTop:2}}>
+              <span style={{color:INSIGHT_MARK_COLOR[item.mark]||C.text,fontWeight:700}}>{item.mark}</span> {item.text}
+            </div>
+          </div>
+        </div>;
+      })}
     <button onClick={()=>fetchInsight(true)} disabled={loading||refreshCount>=3}
       style={{marginTop:10,fontSize:12,fontWeight:600,color:refreshCount>=3?C.sub:C.gold,
       background:'none',border:'none',cursor:refreshCount>=3?'default':'pointer',padding:0}}>
-      {refreshCount>=3?'Лимит обновлений на сегодня исчерпан':`🔄 Другой инсайт (осталось ${3-refreshCount})`}
+      {refreshCount>=3?'Лимит обновлений на сегодня исчерпан':`🔄 Обновить (осталось ${3-refreshCount})`}
     </button>
   </div>;
 }
@@ -1488,40 +1511,33 @@ function Home({onNav,energy,onGoJournal}){
         <div className="greeting">Доброе утро, Никита</div>
         <div className="transit">{e.aspect||'♃ Юпитер вошёл в Льва · 🌙 Луна в Скорпионе'}</div>
       </div>
-      <div className="card">
-        <div className="card-head">
-          <span className="card-title">⚡ Энергия сейчас</span>
-          <span className="badge">{e.mode}</span>
-        </div>
-        <Bar value={e.will} color={C.gold} label="Воля · Солнце"/>
-        <Bar value={e.intuition} color={C.indigo} label="Интуиция · Луна / Плутон"/>
-        <Bar value={e.action} color="#7B1FA2" label="Действие · Марс"/>
-        <div className="advice-box"><p>💡 {e.advice}</p></div>
-      </div>
 
-      {/* Пункт 1: «Сегодня» — приоритет дня, фокус дня, счётчики */}
-      <TodayCard/>
+      {/* Пункт 1А: блок «Энергия сейчас» убран целиком — по формулировке ТЗ,
+          он был непонятен и не нёс пользы. */}
 
-      {/* Пункт 3: «Настрой дня» — про внутреннее состояние и повседневную жизнь,
-          отдельно от шкал энергии, никак не связано со спортом/делами/проектами */}
+      {/* Пункт 1В: «Сегодня» — задачи Планировщика на сегодня, клик открывает Планировщик */}
+      <TodayCard onOpen={()=>onNav('planner')}/>
+
+      {/* «Настрой дня» — про внутреннее состояние и повседневную жизнь, отдельно
+          от убранных шкал энергии; не упомянут в списке на удаление — оставляю. */}
       <div className="card">
         <div className="card-title">🌿 Настрой дня</div>
         <p className="body12">{e.mood||ENERGY_DEF.mood}</p>
       </div>
 
-      {/* Новый блок: Рекомендации дня — практика/тело/гардероб/сны */}
+      {/* Рекомендации дня — практика/тело/гардероб/сны (из прошлой правки, не в списке на удаление) */}
       <DailyPracticesCard onGoJournal={onGoJournal}/>
 
-      {/* Пункт 2/3: карточки проектов и Место силы убраны с Главной —
-          Проекты снова своя вкладка навигации, Место силы переехало в Ещё.
-          Главная теперь показывает только энергию и прогноз на неделю. */}
+      {/* Пункт 1Д: «Прогноз на неделю» — оставлен как есть */}
       <WeeklyForecastCard/>
 
-      {/* Пункт 2: «Инсайт дня» */}
+      {/* Пункт 1Г: «Инсайт дня» — категоризированные астро-рекомендации */}
       <InsightCard/>
 
-      {/* Пункт 6Д: сокращённая версия Планировщика недели (если есть задачи) */}
-      <PlannerWidget onOpen={()=>onNav('planner')}/>
+      {/* PlannerWidget убран отсюда — TodayCard теперь единственный виджет
+          Планировщика на Главной (показывает именно сегодняшние задачи,
+          что и требуется по ТЗ), функция PlannerWidget оставлена в коде
+          неиспользуемой на случай будущей надобности. */}
     </div>
   </div>;
 }
@@ -1578,6 +1594,26 @@ function DayDetails({sel,layer}){
       return<div style={{background:'#EDE7F6',border:'1px solid #7B1FA2',borderRadius:12,padding:12,marginBottom:12}}>
         <div style={{fontSize:13,fontWeight:700,color:C.text}}>🌙 День интуиции</div>
         <div style={{fontSize:12,color:C.sub,marginTop:3}}>{note} Доверься внутреннему голосу.</div>
+      </div>;
+    })()}
+    {/* Пункт 3: задачи Планировщика на этот день, с цветовой индикацией */}
+    {(()=>{
+      const tasksHere=getPlannerTasksForDate(y,m,d);
+      if(tasksHere.length===0)return null;
+      return<div style={{marginBottom:12}}>
+        <div style={{fontSize:11,fontWeight:700,color:C.sub,textTransform:'uppercase',letterSpacing:.3,marginBottom:6}}>
+          📋 Задачи Планировщика
+        </div>
+        {tasksHere.map(t=><div key={t.id} style={{display:'flex',alignItems:'center',gap:8,
+          background:t.quality==='g'?'#E8F5E9':t.quality==='y'?'#FFF3E0':'#FFEBEE',
+          borderRadius:10,padding:'9px 12px',marginBottom:6}}>
+          <span style={{fontSize:15}}>{t.type.icon}</span>
+          <div style={{flex:1}}>
+            <div style={{fontSize:13,fontWeight:600,color:C.text}}>{t.title}</div>
+            <div style={{fontSize:10.5,color:C.sub}}>{t.type.label} · {QUALITY_LABEL[t.quality]}</div>
+          </div>
+          <span style={{fontSize:14}}>{QUALITY_DOT[t.quality]}</span>
+        </div>)}
       </div>;
     })()}
     {events.map((k,i)=><div key={i} style={{background:C.indigoLight,borderRadius:10,padding:12,marginBottom:8}}>
@@ -1735,6 +1771,8 @@ function Calendar(){
           const hasEvent=KEY_DATES.some(k=>matchKeyDate(k,yr,mo,d));
           const dateISO=`${yr}-${String(mo+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
           const raceHere=races.find(r=>r.date===dateISO);
+          // Пункт 3: задачи Планировщика, привязанные к этому дню недели
+          const plannerTasksHere=getPlannerTasksForDate(yr,mo,d);
           // Пункт 1: благоприятный для интуиции лунный день (только для слоя Интуиция)
           const lunarDay=layer==='intuition'?getLunarDayNumber(new Date(yr,mo,d)):null;
           const isIntuitionDay=layer==='intuition'&&!!INTUITION_DAY_NOTE[lunarDay];
@@ -1752,6 +1790,9 @@ function Calendar(){
             {hasBday&&<span className="star">⭐</span>}
             {raceHere&&<span className="day-cell-race">🏁</span>}
             {isIntuitionDay&&<span className="day-cell-race" style={{fontSize:11}}>🌙</span>}
+            {/* Пункт 3: маленькая цветная точка задачи(-ч) Планировщика в углу ячейки */}
+            {plannerTasksHere.length>0&&<span style={{position:'absolute',top:3,left:3,width:6,height:6,
+              borderRadius:'50%',background:EC[plannerTasksHere[0].quality]}}/>}
             {/* Пункт 7: акцентная полоса качества дня внизу ячейки вместо заливки фона */}
             {!tod&&!raceHere&&layer!=='intuition'&&<span className="day-cell-bar" style={{background:EC[en]}}/>}
           </div>;
@@ -2254,7 +2295,7 @@ function drawTarotCard(sphere){
   return{...card,sphere,lens};
 }
 
-function Oracle({embedded}){
+function Oracle({embedded,onBack}){
   const [mode,setMode]=useState('quick');
   // Free question
   const [q,setQ]=useState('');
@@ -2510,7 +2551,7 @@ ${historyText}
   };
 
   const inner=<>
-    {!embedded&&<div className="h1">👁 Оракул</div>}
+    {!embedded&&<BackHead title="👁 Оракул" onBack={onBack}/>}
     <p style={{fontSize:12,color:C.sub,marginBottom:14}}>Персональный ассистент по карте Никиты и текущим транзитам.</p>
     <Tabs tabs={[{k:'quick',l:'💬 Вопрос'},{k:'election',l:'📅 Время'},{k:'templates',l:'🧩 Шаблоны'}]} active={mode} onChange={m=>{setMode(m);setAns(null);setErr('');setConvo([]);setFollowUp('');}}/>
 
@@ -3571,11 +3612,9 @@ function Body({embedded}){
       <p style={{fontSize:13,color:C.text,lineHeight:1.6}}>{selectedDay.desc}</p>
     </div>}
 
-    {/* Совет дня: Восстановление / Питание / Вода — адаптируется под выбранный день */}
-    <DailyAdviceCard parsedDays={parsedDays} selectedDayIdx={selectedDayIdx}
-      manualTimeOfDay={manualTimeOfDay} onTimeOfDayChange={changeTimeOfDay}/>
-
-    {/* Пункт 1: Прогноз состояния — под Советом дня, на основе плана, витаминов и ресурса */}
+    {/* Пункт 4Б: Совет дня убран отсюда — теперь единственный экземпляр
+        находится во вкладке «Восстановление» (RecoveryTab), чтобы не дублировать. */}
+    {/* Пункт 1: Прогноз состояния — на основе плана, витаминов и ресурса */}
     <StateForecastCard/>
 
     {/* ПЛАН ТРЕНЕРА (сырой текст — редактирование) */}
@@ -3691,7 +3730,7 @@ async function analyzeSkillAnswer(direction,level,scenario,answer){
   return await callClaudeJSON(SYS_JSON,prompt);
 }
 
-function Skills(){
+function Skills({onBack}){
   const [direction,setDirection]=useState('structure');
   const [level,setLevel]=useState('novice');
   const [scenario,setScenario]=useState('');
@@ -3736,7 +3775,7 @@ function Skills(){
   const dirLabel=k=>(SKILL_DIRECTIONS.find(d=>d.key===k)||{}).label||k;
   const lvlLabel=k=>(SKILL_LEVELS.find(l=>l.key===k)||{}).label||k;
 
-  return <>
+  const inner=<>
     {/* Выбор направления — плитки */}
     <div className="card">
       <div className="card-title">Направление</div>
@@ -3838,6 +3877,10 @@ function Skills(){
       </div>}
     </div>}
   </>;
+  return <div className="screen"><div className="pad">
+    <BackHead title="🧠 Навыки" onBack={onBack}/>
+    {inner}
+  </div></div>;
 }
 
 /* ======= DEVELOPMENT (Развитие — Тело / Оракул / Навыки) ======= */
@@ -3913,12 +3956,19 @@ function Nutrition(){
   const [profile,setProfile]=useState(getNutritionProfile);
   const [editing,setEditing]=useState(!getNutritionProfile());
   const [form,setForm]=useState(()=>getNutritionProfile()||{weight:'',height:'',age:'',activity:'active'});
+  // Пункт 4А: явная кнопка «Обновить рацион» — форсирует пересчёт (сам расчёт
+  // и так пересчитывается на каждый рендер, но явный тик даёт пользователю
+  // видимую уверенность, что данные подтянулись заново).
+  const [refreshTick,setRefreshTick]=useState(0);
 
   const rawPlan=localStorage.getItem('trainingPlan')||localStorage.getItem('fenix_training_plan')||'';
   const parsedDays=rawPlan?parsePlan(rawPlan):[];
   const jsDow=new Date().getDay();
   const todayIdx=jsDow===0?6:jsDow-1;
   const todayPlan=parsedDays.find(d=>d.dayIdx===todayIdx)||null;
+  // Пункт 4А: учитываем задачи из Планировщика на сегодня — плотный день
+  // добавляет контекстную подсказку к рациону
+  const todayTasksCount=getPlannerTasks().length;
 
   const saveProfile=()=>{
     const w=Number(form.weight),h=Number(form.height),a=Number(form.age);
@@ -3981,6 +4031,16 @@ function Nutrition(){
   const water=calcWaterNorm(profile,todayPlan);
 
   return <>
+    {/* Пункт 4А: явное обновление рациона */}
+    <button className="add-new-btn" style={{marginBottom:12}} onClick={()=>setRefreshTick(t=>t+1)}>
+      🔄 Обновить рацион
+    </button>
+    {todayTasksCount>0&&<div className="card" style={{borderLeft:`3px solid ${C.indigo}`,padding:14}}>
+      <p style={{fontSize:12.5,color:C.sub,lineHeight:1.5}}>
+        📋 В Планировщике сейчас {todayTasksCount} {todayTasksCount===1?'задача':todayTasksCount<5?'задачи':'задач'} —
+        рацион ниже уже учитывает нагрузку дня по плану тренировок.
+      </p>
+    </div>}
     {/* Итог по калориям */}
     <div className="card" style={{borderLeft:`3px solid ${C.gold}`}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
@@ -4132,21 +4192,33 @@ function RecoveryTab(){
   const parsedDays=rawPlan?parsePlan(rawPlan):[];
   const [manualTimeOfDay,setManualTimeOfDay]=useState(()=>localStorage.getItem('trainingTimeOfDay')||'auto');
   const changeTimeOfDay=(v)=>{setManualTimeOfDay(v);localStorage.setItem('trainingTimeOfDay',v);};
+  // Пункт 4Б: восстановление учитывает не только тренировку, но и нагруженность
+  // дня задачами из Планировщика — если сегодня много высокоприоритетных дел,
+  // явно напоминаем не экономить на отдыхе.
+  const todayISOStr=todayISO();
+  const heavyTasksToday=getPlannerTasks().filter(t=>t.priority==='high').length;
   return <>
     <DailyAdviceCard parsedDays={parsedDays} selectedDayIdx={null}
       manualTimeOfDay={manualTimeOfDay} onTimeOfDayChange={changeTimeOfDay}/>
+    {heavyTasksToday>0&&<div className="card" style={{borderLeft:`3px solid ${C.orange}`}}>
+      <div style={{fontSize:13,color:C.text,lineHeight:1.6}}>
+        ⚠️ В Планировщике сейчас {heavyTasksToday} {heavyTasksToday===1?'задача высокого приоритета':heavyTasksToday<5?'задачи высокого приоритета':'задач высокого приоритета'} —
+        учти это при планировании отдыха, не экономь на восстановлении в дни с плотной нагрузкой.
+      </div>
+    </div>}
     <ProceduresTracker/>
   </>;
 }
 
-function Development(){
+// Пункт 8: «Тело» теперь самостоятельная вкладка навигации (была под «Развитие»).
+// Внутри — три подраздела: сама тренировочная часть, Рацион, Восстановление.
+// Оракул и Навыки переехали в «Ещё» — в новой навигации для них нет отдельной вкладки.
+function BodyHub(){
   const [tab,setTab]=useState('body');
   return <div className="screen"><div className="pad">
-    <div className="h1">🧠 Развитие</div>
-    {/* Пять табов второго уровня. Скроллятся по горизонтали, чтобы влезали на iPhone */}
+    <div className="h1">💪 Тело</div>
     <div style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:8,marginBottom:12}}>
-      {[['body','💪 Тело'],['nutrition','🍽 Рацион'],['recovery','🧖 Восстановление'],
-        ['oracle','👁 Оракул'],['skills','🧠 Навыки']].map(([k,l])=>
+      {[['body','💪 Тело'],['nutrition','🍽 Рацион'],['recovery','🧖 Восстановление']].map(([k,l])=>
         <button key={k} onClick={()=>setTab(k)}
           style={{flexShrink:0,padding:'11px 16px',borderRadius:14,cursor:'pointer',
           border:`1px solid ${tab===k?C.gold:C.border}`,
@@ -4157,8 +4229,6 @@ function Development(){
     {tab==='body'&&<Body embedded/>}
     {tab==='nutrition'&&<Nutrition/>}
     {tab==='recovery'&&<RecoveryTab/>}
-    {tab==='oracle'&&<Oracle embedded/>}
-    {tab==='skills'&&<Skills/>}
   </div></div>;
 }
 
@@ -5050,21 +5120,22 @@ function AstroDigest({onBack}){
 const PRIORITY_LABEL={high:'Высокий',medium:'Средний',low:'Низкий'};
 const PRIORITY_COLOR={high:C.red,medium:'#F57F17',low:C.green};
 
-function WeeklyPlanner({onBack}){
+function WeeklyPlanner(){
   const [tasks,setTasks]=useState(getPlannerTasks);
   const [adding,setAdding]=useState(false);
   const [editingId,setEditingId]=useState(null);
-  const [form,setForm]=useState({title:'',type:'meeting',priority:'medium'});
+  const [form,setForm]=useState({title:'',type:'affairs',priority:'medium',days:[]});
 
-  const openAdd=()=>{setForm({title:'',type:'meeting',priority:'medium'});setEditingId(null);setAdding(true);};
-  const openEdit=t=>{setForm({title:t.title,type:t.type,priority:t.priority});setEditingId(t.id);setAdding(true);};
+  const openAdd=()=>{setForm({title:'',type:'affairs',priority:'medium',days:[]});setEditingId(null);setAdding(true);};
+  const openEdit=t=>{setForm({title:t.title,type:t.type,priority:t.priority,days:t.days||[]});setEditingId(t.id);setAdding(true);};
+  const toggleDay=d=>setForm(p=>({...p,days:p.days.includes(d)?p.days.filter(x=>x!==d):[...p.days,d]}));
   const submit=()=>{
     if(!form.title.trim())return;
     let next;
     if(editingId){
-      next=tasks.map(t=>t.id===editingId?{...t,title:form.title.trim(),type:form.type,priority:form.priority}:t);
+      next=tasks.map(t=>t.id===editingId?{...t,title:form.title.trim(),type:form.type,priority:form.priority,days:form.days}:t);
     }else{
-      next=[{id:Date.now(),title:form.title.trim(),type:form.type,priority:form.priority,dateAdded:todayISO()},...tasks];
+      next=[{id:Date.now(),title:form.title.trim(),type:form.type,priority:form.priority,days:form.days,dateAdded:todayISO()},...tasks];
     }
     setTasks(next);savePlannerTasks(next);setAdding(false);setEditingId(null);
   };
@@ -5072,7 +5143,7 @@ function WeeklyPlanner({onBack}){
     const next=tasks.filter(t=>t.id!==id);setTasks(next);savePlannerTasks(next);};
 
   return <div className="screen"><div className="pad">
-    <BackHead title="🗓 Планировщик недели" onBack={onBack}/>
+    <div className="h1">📋 Планы</div>
     <p style={{fontSize:12.5,color:C.sub,marginBottom:14,lineHeight:1.5}}>
       Добавь задачу — Феникс подскажет, какой день недели для неё благоприятнее, на основе транзитов.
     </p>
@@ -5082,10 +5153,15 @@ function WeeklyPlanner({onBack}){
         {editingId?'Редактировать задачу':'Новая задача'}
       </div>
       <input placeholder="Название задачи *" value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))}/>
-      <label className="label11" style={{marginTop:8}}>Тип задачи</label>
+      <label className="label11" style={{marginTop:8}}>Категория</label>
       <div className="lens-row" style={{marginBottom:8}}>
         {TASK_TYPES.map(t=><button key={t.key} type="button" className={`lens-btn ${form.type===t.key?'on':'off'}`}
           onClick={()=>setForm(p=>({...p,type:t.key}))}>{t.icon} {t.label}</button>)}
+      </div>
+      <label className="label11">Дата (день недели или диапазон — можно несколько, необязательно)</label>
+      <div className="lens-row" style={{marginBottom:8}}>
+        {WD.map(d=><button key={d} type="button" className={`lens-btn ${form.days.includes(d)?'on':'off'}`}
+          onClick={()=>toggleDay(d)}>{d}</button>)}
       </div>
       <label className="label11">Приоритет</label>
       <div className="lens-row" style={{marginBottom:10}}>
@@ -5098,7 +5174,7 @@ function WeeklyPlanner({onBack}){
 
     {tasks.length===0&&<p style={{fontSize:12,color:C.sub,textAlign:'center',padding:'20px 0'}}>Задач пока нет.</p>}
     {tasks.map(t=>{
-      const type=TASK_TYPES.find(tt=>tt.key===t.type)||TASK_TYPES[TASK_TYPES.length-1];
+      const type=resolveTaskType(t.type);
       const best=bestDayForTask(t.type);
       const week=getWeekFavorability(t.type);
       return<div key={t.id} className="j-entry">
@@ -5108,6 +5184,7 @@ function WeeklyPlanner({onBack}){
             <div style={{fontSize:14,fontWeight:700,color:C.text}}>{t.title}</div>
             <div style={{fontSize:11,color:C.sub,marginTop:2}}>
               {type.label} · приоритет: <span style={{color:PRIORITY_COLOR[t.priority],fontWeight:600}}>{PRIORITY_LABEL[t.priority]}</span>
+              {t.days&&t.days.length>0&&<> · дата: <b style={{color:C.text}}>{t.days.join(', ')}</b></>}
             </div>
             <div style={{fontSize:12.5,marginTop:6,color:C.text}}>
               {QUALITY_DOT[best.quality]} Лучший день: <b>{best.label}, {best.date.getDate()} {best.date.toLocaleDateString('ru-RU',{month:'long'})}</b>
@@ -5139,7 +5216,7 @@ function PlannerWidget({onOpen}){
   return <div className="card" onClick={onOpen} style={{cursor:'pointer'}}>
     <div className="card-title">🗓 Планировщик недели</div>
     {tasks.map(t=>{
-      const type=TASK_TYPES.find(tt=>tt.key===t.type)||TASK_TYPES[TASK_TYPES.length-1];
+      const type=resolveTaskType(t.type);
       const best=bestDayForTask(t.type);
       return<div key={t.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',
         borderBottom:`1px solid ${C.border}`}}>
@@ -5156,7 +5233,7 @@ function More({onNav,onKeyCleared}){
   return <div className="screen"><div className="pad">
     <div className="h1">Ещё</div>
     <div className="more-grid">
-      {[['journal','📝','Журнал','Заметки + транзиты'],['library','📚','Библиотека','Книги и оценки'],['planner','🗓','Планировщик','Задачи по дням недели'],['powerplace','🧭','Место силы','Куда за энергией'],['mycode','✨','Мой код','Натальная карта'],['digest','🌙','Астро-дайджест','Сегодня, фон, картина'],['insights','🔮','Глубинные запросы','Особые разборы']].map(([id,e,l,s])=><button key={id} className="more-tile" onClick={()=>onNav(id)}>
+      {[['journal','📝','Журнал','Заметки + транзиты'],['library','📚','Библиотека','Книги и оценки'],['oracle','👁','Оракул','Вопросы, время, шаблоны'],['skills','🧠','Навыки','Тренировка речи и уверенности'],['powerplace','🧭','Место силы','Куда за энергией'],['mycode','✨','Мой код','Натальная карта'],['digest','🌙','Астро-дайджест','Сегодня, фон, картина'],['insights','🔮','Глубинные запросы','Особые разборы']].map(([id,e,l,s])=><button key={id} className="more-tile" onClick={()=>onNav(id)}>
         <span className="ei2">{e}</span><strong>{l}</strong><span>{s}</span>
       </button>)}
     </div>
@@ -5204,9 +5281,10 @@ function StopFAB({active,endTime,onActivate}){
 /* ======= NAV ======= */
 // Финальная структура: 5 вкладок. «Тело» и «Оракул» переехали внутрь «Развития»
 // как табы второго уровня, вместе с новым разделом «Навыки».
-const NAV_TABS=[{id:'home',e:'🏠',l:'Главная'},{id:'calendar',e:'📅',l:'Календарь'},{id:'projects',e:'📁',l:'Проекты'},{id:'development',e:'🧠',l:'Развитие'},{id:'more',e:'⋯',l:'Ещё'}];
-// В «Ещё» — Журнал/Библиотека/Место силы/Мой код/Дайджест/Инсайты/Уведомления
-const SUB=['journal','mycode','notifications','insights','powerplace','library','digest','planner'];
+const NAV_TABS=[{id:'home',e:'🏠',l:'Главная'},{id:'calendar',e:'📅',l:'Календарь'},{id:'projects',e:'📁',l:'Проекты'},{id:'body',e:'💪',l:'Тело'},{id:'planner',e:'📋',l:'Планы'},{id:'more',e:'⋯',l:'Ещё'}];
+// Оракул и Навыки — не в списке вкладок нового ТЗ, доступны через «Ещё»,
+// вместе с остальными экранами-деталями (Журнал/Библиотека/Место силы/Мой код/Дайджест/Инсайты/Уведомления)
+const SUB=['journal','mycode','notifications','insights','powerplace','library','digest','oracle','skills'];
 function Nav({active,onNav}){
   return <nav className="nav">{NAV_TABS.map(t=>{
     const on=active===t.id||(t.id==='more'&&SUB.includes(active));
@@ -5266,11 +5344,9 @@ function App(){
       case'home':return<Home onNav={setScreen} energy={energy} onGoJournal={goJournalWithTag}/>;
       case'calendar':return<Calendar key={calKey}/>;
       case'projects':return<Projects onOpenLibrary={openLibrary}/>;
-      case'development':return<Development/>;
-      // Старые id оставлены как алиасы: если где-то остался переход на 'body'/'oracle',
-      // пользователь всё равно попадёт в «Развитие», а не на пустой экран.
-      case'body':return<Development/>;
-      case'oracle':return<Development/>;
+      case'body':return<BodyHub/>;
+      case'oracle':return<Oracle onBack={()=>setScreen('more')}/>;
+      case'skills':return<Skills onBack={()=>setScreen('more')}/>;
       case'more':return<More onNav={setScreen} onKeyCleared={()=>setPhase('gate')}/>;
       case'powerplace':return<PowerPlace onBack={()=>setScreen('more')}/>;
       case'journal':return<Journal onBack={()=>setScreen('more')} initialTag={journalTag}/>;
@@ -5279,7 +5355,7 @@ function App(){
       case'notifications':return<Notifications onBack={()=>setScreen('more')}/>;
       case'insights':return<InsightsScreen onBack={()=>setScreen('more')}/>;
       case'digest':return<AstroDigest onBack={()=>setScreen('more')}/>;
-      case'planner':return<WeeklyPlanner onBack={()=>setScreen('more')}/>;
+      case'planner':return<WeeklyPlanner/>;
       default:return<Home onNav={setScreen} energy={energy} onGoJournal={goJournalWithTag}/>;
     }
   };
