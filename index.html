@@ -751,6 +751,41 @@ const CAL_LAYERS={
 };
 const getDE=(y,m,d,layer='moon')=>(CAL_LAYERS[layer]?.data||CAL_MOON)[`${y}-${m}-${d}`]||'g';
 
+/* ======= WEEKLY PLANNER (Планировщик недели) ======= */
+// Пункт 6Б: тип задачи привязан к одному из уже существующих слоёв календаря
+// (moon=Луна/общая энергия, doc=Меркурий/финансы-письма, meet=Венера+Марс/встречи) —
+// это честное переиспользование уже смоделированных в приложении транзитов,
+// а не выдуманная с нуля вторая система астрологии.
+const TASK_TYPES=[
+  {key:'meeting',label:'Встреча / переговоры',icon:'🤝',layer:'meet'},
+  {key:'ops',label:'Операционка',icon:'⚙️',layer:'moon'},
+  {key:'finance',label:'Финансы',icon:'💰',layer:'doc'},
+  {key:'creative',label:'Творчество',icon:'🎨',layer:'moon'},
+  {key:'comms',label:'Письма / коммуникация',icon:'✉️',layer:'doc'},
+  {key:'training',label:'Тренировка',icon:'🏃',layer:'moon'},
+  {key:'other',label:'Другое',icon:'📌',layer:'moon'},
+];
+const QUALITY_DOT={g:'🟢',y:'🟡',r:'🔴'};
+const QUALITY_LABEL={g:'Благоприятно',y:'Нейтрально',r:'Неблагоприятно'};
+function getWeekFavorability(taskTypeKey){
+  const type=TASK_TYPES.find(t=>t.key===taskTypeKey)||TASK_TYPES[TASK_TYPES.length-1];
+  const now=new Date();
+  const days=[];
+  for(let i=0;i<7;i++){
+    const d=new Date(now);d.setDate(now.getDate()+i);
+    days.push({date:d,quality:getDE(d.getFullYear(),d.getMonth()+1,d.getDate(),type.layer),
+      label:d.toLocaleDateString('ru-RU',{weekday:'short'})});
+  }
+  return days;
+}
+function bestDayForTask(taskTypeKey){
+  const days=getWeekFavorability(taskTypeKey);
+  return days.find(d=>d.quality==='g')||days.find(d=>d.quality==='y')||days[0];
+}
+const PLANNER_TASKS_KEY='weekly_planner_tasks';
+function getPlannerTasks(){try{return JSON.parse(localStorage.getItem(PLANNER_TASKS_KEY)||'[]');}catch{return[];}}
+function savePlannerTasks(list){localStorage.setItem(PLANNER_TASKS_KEY,JSON.stringify(list));}
+
 const KEY_DATES=[
   {d:'22 июля',l:'День рождения · Юпитер трин Солнцу',t:'g'},
   {d:'21 июля',l:'Scrap: фаза «Осторожный выход»',t:'y'},
@@ -1313,6 +1348,136 @@ function DailyPracticesCard({onGoJournal}){
   </>;
 }
 
+/* ======= TODAY BLOCK (Пункт 1: «Сегодня» на Главной) ======= */
+const TODAY_BLOCK_CACHE_KEY='daily_today_block';
+const TODAY_BLOCK_DATE_KEY='daily_today_block_date';
+async function generateTodayBlock(){
+  const dow=new Date().toLocaleDateString('ru-RU',{weekday:'long'});
+  const prompt=`НАТАЛЬНАЯ КАРТА:\n${natalSummary()}\nДЕНЬ НЕДЕЛИ: ${dow}\nДАТА: ${todayISO()}\n\nСоставь два коротких блока для утренней сводки:\n1. priority — ОДНА конкретная задача дня, на которую стоит обратить внимание: может быть из проектов (Scrap/Hub/База), из повседневных дел, или продиктована астрологическим фоном. Одно предложение, максимально конкретно.\n2. focus — короткий практический совет (1-2 предложения), адаптированный под текущий день недели и общее состояние — например «сегодня не берись за сложные переговоры, лучше систематизируй документы». Простым языком, без астрологического сленга.\n\nВерни ТОЛЬКО JSON: {"priority":"...","focus":"..."}`;
+  const res=await callClaudeJSON(SYS_JSON,prompt);
+  return{priority:res.priority||'',focus:res.focus||''};
+}
+function getTodayBlockFallback(){
+  return{priority:'Заверши одну задачу, которую откладывал вчера — это освободит голову для остального.',
+    focus:'Сегодня хороший день навести порядок в текущих делах, а не начинать что-то новое.'};
+}
+function TodayCard(){
+  const [data,setData]=useState(()=>{
+    if(localStorage.getItem(TODAY_BLOCK_DATE_KEY)===todayISO()){
+      try{const c=JSON.parse(localStorage.getItem(TODAY_BLOCK_CACHE_KEY)||'null');if(c)return c;}catch{}
+    }
+    return null;
+  });
+  const [loading,setLoading]=useState(false);
+  useEffect(()=>{
+    if(localStorage.getItem(TODAY_BLOCK_DATE_KEY)===todayISO())return;
+    let cancelled=false;
+    setLoading(true);
+    generateTodayBlock()
+      .then(fresh=>{
+        if(cancelled)return;
+        setData(fresh);
+        localStorage.setItem(TODAY_BLOCK_CACHE_KEY,JSON.stringify(fresh));
+        localStorage.setItem(TODAY_BLOCK_DATE_KEY,todayISO());
+      })
+      .catch(()=>{if(!cancelled)setData(getTodayBlockFallback());})
+      .finally(()=>{if(!cancelled)setLoading(false);});
+    return()=>{cancelled=true;};
+  },[]);
+
+  // Пункт 1В: счётчики дней — переиспользуем уже существующие в приложении даты
+  const counters=[
+    {label:'До марафона',days:DAYS_TO_MARATHON,icon:'🏃'},
+    {label:'Дедлайн Scrap',days:DAYS_LEFT,icon:'⚙️'},
+    {label:'Запуск Hub',days:HUB_DAYS_LEFT,icon:'🚀'},
+  ];
+
+  return <div className="card">
+    <div className="card-title">📋 Сегодня</div>
+    {!data?<p style={{fontSize:13,color:C.sub}}>Загружаю твой день…</p>:<>
+      <div style={{marginBottom:12,paddingBottom:12,borderBottom:`1px solid ${C.border}`}}>
+        <div style={{fontSize:11,fontWeight:700,color:C.gold,textTransform:'uppercase',letterSpacing:.3,marginBottom:4}}>🎯 Приоритет дня</div>
+        <p style={{fontSize:14,color:C.text,lineHeight:1.6}}>{data.priority}</p>
+      </div>
+      <div style={{marginBottom:14,paddingBottom:14,borderBottom:`1px solid ${C.border}`}}>
+        <div style={{fontSize:11,fontWeight:700,color:C.gold,textTransform:'uppercase',letterSpacing:.3,marginBottom:4}}>🔍 Фокус дня</div>
+        <p style={{fontSize:14,color:C.text,lineHeight:1.6}}>{data.focus}</p>
+      </div>
+    </>}
+    <div style={{fontSize:11,fontWeight:700,color:C.sub,textTransform:'uppercase',letterSpacing:.3,marginBottom:8}}>Счётчики</div>
+    <div style={{display:'flex',gap:8,overflowX:'auto'}}>
+      {counters.map(c=><div key={c.label} style={{flexShrink:0,background:'#F1F3F5',borderRadius:12,
+        padding:'10px 14px',textAlign:'center',minWidth:90}}>
+        <div style={{fontSize:17}}>{c.icon}</div>
+        <div style={{fontFamily:'Oswald,sans-serif',fontSize:20,fontWeight:700,color:C.gold}}>{c.days}</div>
+        <div style={{fontSize:10,color:C.sub}}>{c.label}</div>
+      </div>)}
+    </div>
+    {loading&&<div style={{fontSize:10,color:C.sub,marginTop:8}}>обновляю…</div>}
+  </div>;
+}
+
+/* ======= INSIGHT OF THE DAY (Пункт 2: «Инсайт дня» на Главной) ======= */
+const INSIGHT_CACHE_KEY='daily_insight';
+const INSIGHT_DATE_KEY='daily_insight_date';
+const INSIGHT_COUNT_KEY='daily_insight_refresh_count';
+const INSIGHT_FALLBACK_POOL=[
+  'Юпитер в Льве в этом году работает на всех, кто перестаёт прятать свой вклад — не молчи о том, что сделал.',
+  'Маленькая привычка, выполненная 20 дней подряд, меняет больше, чем один рывок раз в месяц.',
+  'Луна меняет знак примерно раз в 2.5 дня — если настроение скачет без причины, возможно, дело не в тебе, а в цикле.',
+  'Сегодняшнее раздражение часто — вчерашняя невысказанная просьба.',
+  'Марс в Рыбах учит: иногда самый сильный ход — не форсировать, а дать процессу дозреть.',
+];
+function getInsightFallback(){return INSIGHT_FALLBACK_POOL[new Date().getDate()%INSIGHT_FALLBACK_POOL.length];}
+async function generateInsight(){
+  const prompt=`НАТАЛЬНАЯ КАРТА:\n${natalSummary()}\nДАТА: ${todayISO()}\n\nДай ОДНУ короткую полезную мысль дня — практический совет, астрологический факт или идею для размышления. 1-2 предложения, живым языком, без длинных вступлений и без астрологического сленга.\nВерни ТОЛЬКО JSON: {"insight":"..."}`;
+  const res=await callClaudeJSON(SYS_JSON,prompt);
+  return res.insight||'';
+}
+function InsightCard(){
+  const [insight,setInsight]=useState(()=>{
+    if(localStorage.getItem(INSIGHT_DATE_KEY)===todayISO()){
+      const c=localStorage.getItem(INSIGHT_CACHE_KEY);if(c)return c;
+    }
+    return null;
+  });
+  const [loading,setLoading]=useState(false);
+  const [refreshCount,setRefreshCount]=useState(()=>
+    localStorage.getItem(INSIGHT_DATE_KEY)===todayISO()?Number(localStorage.getItem(INSIGHT_COUNT_KEY)||0):0);
+
+  const fetchInsight=async(isManual)=>{
+    setLoading(true);
+    try{
+      const text=await generateInsight();
+      const final=text||getInsightFallback();
+      setInsight(final);
+      localStorage.setItem(INSIGHT_CACHE_KEY,final);
+      localStorage.setItem(INSIGHT_DATE_KEY,todayISO());
+      if(isManual){
+        const next=refreshCount+1;
+        setRefreshCount(next);
+        localStorage.setItem(INSIGHT_COUNT_KEY,String(next));
+      }
+    }catch{
+      setInsight(getInsightFallback());
+    }finally{setLoading(false);}
+  };
+  useEffect(()=>{
+    if(localStorage.getItem(INSIGHT_DATE_KEY)===todayISO())return;
+    fetchInsight(false);
+  },[]);
+
+  return <div className="card" style={{borderLeft:`3px solid ${C.gold}`}}>
+    <div className="card-title">💡 Инсайт дня</div>
+    <p style={{fontSize:14,color:C.text,lineHeight:1.65}}>{loading?'Думаю…':(insight||'Загружаю инсайт…')}</p>
+    <button onClick={()=>fetchInsight(true)} disabled={loading||refreshCount>=3}
+      style={{marginTop:10,fontSize:12,fontWeight:600,color:refreshCount>=3?C.sub:C.gold,
+      background:'none',border:'none',cursor:refreshCount>=3?'default':'pointer',padding:0}}>
+      {refreshCount>=3?'Лимит обновлений на сегодня исчерпан':`🔄 Другой инсайт (осталось ${3-refreshCount})`}
+    </button>
+  </div>;
+}
+
 function Home({onNav,energy,onGoJournal}){
   const e=energy||ENERGY_DEF;
   const today=new Date().toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'});
@@ -1334,6 +1499,9 @@ function Home({onNav,energy,onGoJournal}){
         <div className="advice-box"><p>💡 {e.advice}</p></div>
       </div>
 
+      {/* Пункт 1: «Сегодня» — приоритет дня, фокус дня, счётчики */}
+      <TodayCard/>
+
       {/* Пункт 3: «Настрой дня» — про внутреннее состояние и повседневную жизнь,
           отдельно от шкал энергии, никак не связано со спортом/делами/проектами */}
       <div className="card">
@@ -1348,6 +1516,12 @@ function Home({onNav,energy,onGoJournal}){
           Проекты снова своя вкладка навигации, Место силы переехало в Ещё.
           Главная теперь показывает только энергию и прогноз на неделю. */}
       <WeeklyForecastCard/>
+
+      {/* Пункт 2: «Инсайт дня» */}
+      <InsightCard/>
+
+      {/* Пункт 6Д: сокращённая версия Планировщика недели (если есть задачи) */}
+      <PlannerWidget onOpen={()=>onNav('planner')}/>
     </div>
   </div>;
 }
@@ -4345,6 +4519,19 @@ function getLibraryRecommendations(){
       reason:`Твоя лучшая оценка (${top.rating}⭐) — ищи книги того же автора или похожей темы.`},
   ]};
 }
+// Пункт 3: ручное обновление рекомендаций через Claude — учитывает уже
+// прочитанные книги и оценки, не трогает саму историю оценок в fenix_books.
+async function generateLibraryRecommendations(){
+  const all=getBooksV2();
+  const rated=all.filter(b=>b.rating>0);
+  const context=rated.length>0
+    ?`Уже прочитанные книги с оценками пользователя: ${rated.map(b=>`«${b.title}»${b.author?` (${b.author})`:''} — ${b.rating}⭐`).join('; ')}.`
+    :'Оценённых книг пока нет.';
+  const readTitles=all.map(b=>b.title).join('; ');
+  const prompt=`${context}\nВсе книги, которые уже есть в библиотеке (не повторять): ${readTitles||'нет'}.\n\nПорекомендуй 2-3 НОВЫЕ книги, которых нет в списке выше, учитывая вкус пользователя по оценкам (если они есть) или общие темы — металлургия, спорт, бизнес, саморазвитие (если оценок нет). Для каждой — название, автор (если известен), короткое пояснение (1 предложение), почему подходит.\nВерни ТОЛЬКО JSON: {"items":[{"title":"...","author":"...","reason":"..."}]}`;
+  const res=await callClaudeJSON(SYS_JSON,prompt);
+  return Array.isArray(res.items)&&res.items.length>0?res.items:null;
+}
 
 /* ======= LIBRARY (Библиотека) ======= */
 function Library({onBack,initialFilter}){
@@ -4370,20 +4557,38 @@ function Library({onBack,initialFilter}){
   };
 
   const recs=getLibraryRecommendations();
+  // Пункт 3: динамические рекомендации через Claude — заменяют статичные,
+  // не трогая саму историю оценённых книг в fenix_books
+  const [dynamicItems,setDynamicItems]=useState(null);
+  const [recsLoading,setRecsLoading]=useState(false);
+  const refreshRecs=async()=>{
+    setRecsLoading(true);
+    try{
+      const fresh=await generateLibraryRecommendations();
+      if(fresh)setDynamicItems(fresh);
+    }catch{/* нет ключа/сети — оставляем то, что уже показано */}
+    finally{setRecsLoading(false);}
+  };
+  const displayedRecs=dynamicItems||recs.items;
 
   return <div className="screen"><div className="pad">
     <BackHead title="📚 Библиотека" onBack={onBack}/>
 
     {/* Пункт 4: блок Рекомендации — по оценкам, если есть, иначе по темам */}
     <div className="card" style={{borderLeft:`3px solid ${C.gold}`}}>
-      <div className="card-title">🎯 Рекомендации</div>
-      {recs.mode==='default'&&<p style={{fontSize:11.5,color:C.sub,marginBottom:8}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+        <div className="card-title" style={{marginBottom:0}}>🎯 Рекомендации</div>
+        <button className="book-refresh-btn" onClick={refreshRecs} title="Обновить рекомендации">
+          {recsLoading?'…':'🔄'}
+        </button>
+      </div>
+      {!dynamicItems&&recs.mode==='default'&&<p style={{fontSize:11.5,color:C.sub,marginBottom:8}}>
         Пока нет оценённых книг — вот общие рекомендации по темам.
       </p>}
-      {recs.items.map((b,i)=><div key={i}
+      {displayedRecs.map((b,i)=><div key={i}
         onClick={()=>setViewingBook({...b,isPreview:true})}
-        style={{marginBottom:i<recs.items.length-1?10:0,paddingBottom:i<recs.items.length-1?10:0,
-        borderBottom:i<recs.items.length-1?`1px solid ${C.border}`:'none',cursor:'pointer'}}>
+        style={{marginBottom:i<displayedRecs.length-1?10:0,paddingBottom:i<displayedRecs.length-1?10:0,
+        borderBottom:i<displayedRecs.length-1?`1px solid ${C.border}`:'none',cursor:'pointer'}}>
         <div style={{fontSize:13,fontWeight:700,color:C.text}}>{b.title}</div>
         {b.author&&<div style={{fontSize:11,color:C.sub}}>{b.author}</div>}
         <div style={{fontSize:12,color:C.sub,marginTop:3,lineHeight:1.45}}>{b.reason}</div>
@@ -4842,12 +5047,116 @@ function AstroDigest({onBack}){
   </div></div>;
 }
 
+const PRIORITY_LABEL={high:'Высокий',medium:'Средний',low:'Низкий'};
+const PRIORITY_COLOR={high:C.red,medium:'#F57F17',low:C.green};
+
+function WeeklyPlanner({onBack}){
+  const [tasks,setTasks]=useState(getPlannerTasks);
+  const [adding,setAdding]=useState(false);
+  const [editingId,setEditingId]=useState(null);
+  const [form,setForm]=useState({title:'',type:'meeting',priority:'medium'});
+
+  const openAdd=()=>{setForm({title:'',type:'meeting',priority:'medium'});setEditingId(null);setAdding(true);};
+  const openEdit=t=>{setForm({title:t.title,type:t.type,priority:t.priority});setEditingId(t.id);setAdding(true);};
+  const submit=()=>{
+    if(!form.title.trim())return;
+    let next;
+    if(editingId){
+      next=tasks.map(t=>t.id===editingId?{...t,title:form.title.trim(),type:form.type,priority:form.priority}:t);
+    }else{
+      next=[{id:Date.now(),title:form.title.trim(),type:form.type,priority:form.priority,dateAdded:todayISO()},...tasks];
+    }
+    setTasks(next);savePlannerTasks(next);setAdding(false);setEditingId(null);
+  };
+  const del=id=>{if(!window.confirm('Удалить задачу?'))return;
+    const next=tasks.filter(t=>t.id!==id);setTasks(next);savePlannerTasks(next);};
+
+  return <div className="screen"><div className="pad">
+    <BackHead title="🗓 Планировщик недели" onBack={onBack}/>
+    <p style={{fontSize:12.5,color:C.sub,marginBottom:14,lineHeight:1.5}}>
+      Добавь задачу — Феникс подскажет, какой день недели для неё благоприятнее, на основе транзитов.
+    </p>
+
+    {adding?<div className="add-form" style={{marginBottom:14}}>
+      <div style={{fontSize:13,fontWeight:700,color:C.indigo,marginBottom:10}}>
+        {editingId?'Редактировать задачу':'Новая задача'}
+      </div>
+      <input placeholder="Название задачи *" value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))}/>
+      <label className="label11" style={{marginTop:8}}>Тип задачи</label>
+      <div className="lens-row" style={{marginBottom:8}}>
+        {TASK_TYPES.map(t=><button key={t.key} type="button" className={`lens-btn ${form.type===t.key?'on':'off'}`}
+          onClick={()=>setForm(p=>({...p,type:t.key}))}>{t.icon} {t.label}</button>)}
+      </div>
+      <label className="label11">Приоритет</label>
+      <div className="lens-row" style={{marginBottom:10}}>
+        {['high','medium','low'].map(p=><button key={p} type="button" className={`lens-btn ${form.priority===p?'on':'off'}`}
+          onClick={()=>setForm(pr=>({...pr,priority:p}))}>{PRIORITY_LABEL[p]}</button>)}
+      </div>
+      <button className="add-save" onClick={submit}>{editingId?'Сохранить':'Добавить'}</button>
+      <button className="add-cancel" onClick={()=>{setAdding(false);setEditingId(null);}}>Отмена</button>
+    </div>:<button className="add-new-btn" style={{marginBottom:14}} onClick={openAdd}>+ Добавить задачу</button>}
+
+    {tasks.length===0&&<p style={{fontSize:12,color:C.sub,textAlign:'center',padding:'20px 0'}}>Задач пока нет.</p>}
+    {tasks.map(t=>{
+      const type=TASK_TYPES.find(tt=>tt.key===t.type)||TASK_TYPES[TASK_TYPES.length-1];
+      const best=bestDayForTask(t.type);
+      const week=getWeekFavorability(t.type);
+      return<div key={t.id} className="j-entry">
+        <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
+          <span style={{fontSize:20}}>{type.icon}</span>
+          <div style={{flex:1}}>
+            <div style={{fontSize:14,fontWeight:700,color:C.text}}>{t.title}</div>
+            <div style={{fontSize:11,color:C.sub,marginTop:2}}>
+              {type.label} · приоритет: <span style={{color:PRIORITY_COLOR[t.priority],fontWeight:600}}>{PRIORITY_LABEL[t.priority]}</span>
+            </div>
+            <div style={{fontSize:12.5,marginTop:6,color:C.text}}>
+              {QUALITY_DOT[best.quality]} Лучший день: <b>{best.label}, {best.date.getDate()} {best.date.toLocaleDateString('ru-RU',{month:'long'})}</b>
+              {' '}({QUALITY_LABEL[best.quality]})
+            </div>
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:4}}>
+            <button className="del-btn" style={{fontSize:14}} onClick={()=>openEdit(t)}>✏️</button>
+            <button className="del-btn" onClick={()=>del(t.id)}>🗑</button>
+          </div>
+        </div>
+        {/* Пункт 6В: цветовая индикация по всем дням недели */}
+        <div style={{display:'flex',gap:4,marginTop:10}}>
+          {week.map((d,i)=><div key={i} style={{flex:1,textAlign:'center',borderRadius:8,padding:'5px 2px',
+            background:d.quality==='g'?'#E8F5E9':d.quality==='y'?'#FFF3E0':'#FFEBEE'}}>
+            <div style={{fontSize:9,color:C.sub,textTransform:'capitalize'}}>{d.label}</div>
+            <div style={{fontSize:11}}>{QUALITY_DOT[d.quality]}</div>
+          </div>)}
+        </div>
+      </div>;
+    })}
+  </div></div>;
+}
+
+// Пункт 6Д: компактный виджет для Главной — показывается, только если есть задачи
+function PlannerWidget({onOpen}){
+  const tasks=getPlannerTasks().slice(0,4);
+  if(tasks.length===0)return null;
+  return <div className="card" onClick={onOpen} style={{cursor:'pointer'}}>
+    <div className="card-title">🗓 Планировщик недели</div>
+    {tasks.map(t=>{
+      const type=TASK_TYPES.find(tt=>tt.key===t.type)||TASK_TYPES[TASK_TYPES.length-1];
+      const best=bestDayForTask(t.type);
+      return<div key={t.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',
+        borderBottom:`1px solid ${C.border}`}}>
+        <span style={{fontSize:13,color:C.text}}>{type.icon} {t.title.slice(0,26)}{t.title.length>26?'…':''}</span>
+        <span style={{fontSize:12,flexShrink:0,marginLeft:8}}>{QUALITY_DOT[best.quality]} {best.label}</span>
+      </div>;
+    })}
+    <div style={{fontSize:12,color:C.gold,marginTop:10,fontWeight:600}}>Открыть планировщик →</div>
+  </div>;
+}
+
 function More({onNav,onKeyCleared}){
   const reset=()=>{if(window.confirm('Сбросить API-ключ? Введёшь заново при следующем запуске.')){localStorage.removeItem('fenix_api_key');onKeyCleared();}};
   return <div className="screen"><div className="pad">
     <div className="h1">Ещё</div>
     <div className="more-grid">
-      {[['journal','📝','Журнал','Заметки + транзиты'],['library','📚','Библиотека','Книги и оценки'],['powerplace','🧭','Место силы','Куда за энергией'],['mycode','✨','Мой код','Натальная карта'],['digest','🌙','Астро-дайджест','Сегодня, фон, картина'],['insights','🔮','Глубинные запросы','Особые разборы']].map(([id,e,l,s])=><button key={id} className="more-tile" onClick={()=>onNav(id)}>
+      {[['journal','📝','Журнал','Заметки + транзиты'],['library','📚','Библиотека','Книги и оценки'],['planner','🗓','Планировщик','Задачи по дням недели'],['powerplace','🧭','Место силы','Куда за энергией'],['mycode','✨','Мой код','Натальная карта'],['digest','🌙','Астро-дайджест','Сегодня, фон, картина'],['insights','🔮','Глубинные запросы','Особые разборы']].map(([id,e,l,s])=><button key={id} className="more-tile" onClick={()=>onNav(id)}>
         <span className="ei2">{e}</span><strong>{l}</strong><span>{s}</span>
       </button>)}
     </div>
@@ -4897,7 +5206,7 @@ function StopFAB({active,endTime,onActivate}){
 // как табы второго уровня, вместе с новым разделом «Навыки».
 const NAV_TABS=[{id:'home',e:'🏠',l:'Главная'},{id:'calendar',e:'📅',l:'Календарь'},{id:'projects',e:'📁',l:'Проекты'},{id:'development',e:'🧠',l:'Развитие'},{id:'more',e:'⋯',l:'Ещё'}];
 // В «Ещё» — Журнал/Библиотека/Место силы/Мой код/Дайджест/Инсайты/Уведомления
-const SUB=['journal','mycode','notifications','insights','powerplace','library','digest'];
+const SUB=['journal','mycode','notifications','insights','powerplace','library','digest','planner'];
 function Nav({active,onNav}){
   return <nav className="nav">{NAV_TABS.map(t=>{
     const on=active===t.id||(t.id==='more'&&SUB.includes(active));
@@ -4970,6 +5279,7 @@ function App(){
       case'notifications':return<Notifications onBack={()=>setScreen('more')}/>;
       case'insights':return<InsightsScreen onBack={()=>setScreen('more')}/>;
       case'digest':return<AstroDigest onBack={()=>setScreen('more')}/>;
+      case'planner':return<WeeklyPlanner onBack={()=>setScreen('more')}/>;
       default:return<Home onNav={setScreen} energy={energy} onGoJournal={goJournalWithTag}/>;
     }
   };
